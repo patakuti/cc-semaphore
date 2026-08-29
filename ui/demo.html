@@ -1,0 +1,28 @@
+<!doctype html>
+<!--
+  Standalone preview of ui/panel.js + panel.css, for browser-based visual
+  checks during development (03_plan.md Phase 4). Not part of the shipped
+  app — index.html/popup.html get real data from Tauri instead of a static
+  file. Serve this directory over HTTP (fetch() of a local file:// URL is
+  blocked by CORS in most browsers), e.g.:
+    python3 -m http.server -d ui 8787
+  then open http://localhost:8787/demo.html
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<title>cc-semaphore demo</title>
+<link rel="stylesheet" href="panel.css">
+<style>body { background: #222; }</style>
+</head>
+<body class="ccs-body ccs-window">
+<div id="counts" class="ccs-counts"></div>
+<div id="sessions"></div>
+<script type="module">
+import {updateSnapshot} from './app.js';
+const res = await fetch('./sample-snapshot.json');
+const snapshot = await res.json();
+updateSnapshot(snapshot, {homeDir: '/home/patakuti'});
+</script>
+</body>
+</html>

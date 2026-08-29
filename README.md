@@ -25,7 +25,8 @@
 - `extensions/cc-semaphore@patakuti/` — GNOME Shell 46 拡張
   (トップバーに状態別カウント表示、クリックでセッション一覧ポップアップ)
 - `ui/` — GNOME拡張以外のフロントエンドが共有する静的UIアセット
-  (ビルド不要。npm/Node.jsは使用しない)
+  (ビルド不要。npm/Node.jsは使用しない)。`demo.html` をブラウザで開けば
+  `python3 -m http.server -d ui` でスタンドアロン確認できる
 - `docs/protocol.md` — backend/frontend間のスナップショットプロトコル仕様
 
 ## ビルド
@@ -59,7 +60,9 @@ gnome-extensions enable cc-semaphore@patakuti
 
 ## 開発状況
 
-設計・計画フェーズ完了。実装は Phase 3(GNOME Shell拡張)まで完了し、
+設計・計画フェーズ完了。実装は Phase 4(共有UIアセット)まで完了し、
 **Ubuntu環境で実用可能な状態**になった。実機(GNOME Shell 46 / X11)で
-パネル表示・ポップアップとも動作確認済み。次はPhase 4(共有UIアセット)。
+パネル表示・ポップアップとも動作確認済み。次はPhase 5〜7(Tauriによる
+Always-on-top透過ウィンドウ・Windowsトレイ・仕上げ)で、Windows+WSL1側の
+実測(Phase 0-Cで後回しにした分)が必要になる。
 詳細は開発時のみ手元に置く設計・計画ドキュメント(Git管理外)を参照。
