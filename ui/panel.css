@@ -1,0 +1,104 @@
+/* Colors must match crates/cc-semaphore-core/src/colors.rs (02_design.md
+   §4.1) and extensions/cc-semaphore@patakuti/stylesheet.css. */
+
+.ccs-body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", "Cantarell", sans-serif;
+    font-size: 13px;
+    color: #f2f2f2;
+    -webkit-app-region: no-drag;
+}
+
+/* Always-on-top transparent window (02_design.md §7.2). */
+.ccs-window {
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    padding: 10px 12px;
+    border-radius: 8px;
+    min-width: 320px;
+}
+
+/* Tray click popup: opaque, no blur (matches the host OS's own popups). */
+.ccs-popup {
+    background: #1e1e1e;
+    padding: 8px 10px;
+    min-width: 320px;
+}
+
+.ccs-drag-handle {
+    -webkit-app-region: drag;
+    height: 14px;
+}
+
+.ccs-counts {
+    display: flex;
+    gap: 10px;
+    font-weight: bold;
+    margin-bottom: 6px;
+}
+
+.ccs-count.ccs-running {
+    color: #2ec27e;
+}
+
+.ccs-count.ccs-waiting {
+    color: #f5c211;
+}
+
+.ccs-count.ccs-idle {
+    color: #e01b24;
+}
+
+.ccs-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 3px 0;
+    white-space: nowrap;
+}
+
+.ccs-dot {
+    font-size: 10px;
+    flex: none;
+}
+
+.ccs-dot.ccs-running {
+    color: #2ec27e;
+}
+
+.ccs-dot.ccs-waiting {
+    color: #f5c211;
+}
+
+.ccs-dot.ccs-idle {
+    color: #e01b24;
+}
+
+.ccs-name {
+    font-weight: 600;
+    flex: none;
+}
+
+.ccs-cwd {
+    color: rgba(242, 242, 242, 0.6);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ccs-elapsed {
+    margin-left: auto;
+    flex: none;
+    color: rgba(242, 242, 242, 0.75);
+    font-variant-numeric: tabular-nums;
+}
+
+.ccs-waiting-for {
+    flex: none;
+    color: rgba(245, 194, 17, 0.85);
+}
+
+.ccs-empty {
+    color: rgba(242, 242, 242, 0.6);
+    padding: 6px 2px;
+}

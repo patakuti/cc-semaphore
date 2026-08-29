@@ -22,10 +22,9 @@ pub fn color_for(state: SessionState) -> &'static str {
 mod tests {
     use super::*;
 
-    // `ui/panel.css` doesn't exist yet (Phase 4); add it to this list once
-    // it does.
     const GNOME_STYLESHEET: &str =
         include_str!("../../../extensions/cc-semaphore@patakuti/stylesheet.css");
+    const UI_PANEL_CSS: &str = include_str!("../../../ui/panel.css");
 
     #[test]
     fn gnome_stylesheet_uses_the_same_hex_colors() {
@@ -41,5 +40,18 @@ mod tests {
             GNOME_STYLESHEET.contains(IDLE),
             "stylesheet.css .ccs-idle must use {IDLE}"
         );
+    }
+
+    #[test]
+    fn ui_panel_css_uses_the_same_hex_colors() {
+        assert!(
+            UI_PANEL_CSS.contains(RUNNING),
+            "panel.css must use {RUNNING}"
+        );
+        assert!(
+            UI_PANEL_CSS.contains(WAITING),
+            "panel.css must use {WAITING}"
+        );
+        assert!(UI_PANEL_CSS.contains(IDLE), "panel.css must use {IDLE}");
     }
 }
