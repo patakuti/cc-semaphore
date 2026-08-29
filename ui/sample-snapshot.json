@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "generatedAt": 1787977000000,
+  "host": "demo-host",
+  "counts": { "running": 1, "waiting": 1, "idle": 1 },
+  "sessions": [
+    {
+      "id": "d1",
+      "pid": 100001,
+      "name": "review-pr-42",
+      "cwd": "/home/patakuti/CCROOT/some-project",
+      "state": "waiting",
+      "rawStatus": "waiting",
+      "waitingFor": "input needed",
+      "since": 1787976880000,
+      "startedAt": 1787970000000
+    },
+    {
+      "id": "d2",
+      "pid": 100002,
+      "name": "markdown-proxy-bd",
+      "cwd": "/home/patakuti/CCROOT/markdown-proxy",
+      "state": "idle",
+      "rawStatus": "idle",
+      "since": 1787963227759,
+      "startedAt": 1787962645050
+    },
+    {
+      "id": "d3",
+      "pid": 100003,
+      "name": "cc-semaphore-b7",
+      "cwd": "/home/patakuti/CCROOT/cc-semaphore",
+      "state": "running",
+      "rawStatus": "busy",
+      "since": 1787976940000,
+      "startedAt": 1787972399274
+    }
+  ]
+}
