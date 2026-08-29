@@ -17,3 +17,29 @@ pub fn color_for(state: SessionState) -> &'static str {
         SessionState::Idle => IDLE,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // `ui/panel.css` doesn't exist yet (Phase 4); add it to this list once
+    // it does.
+    const GNOME_STYLESHEET: &str =
+        include_str!("../../../extensions/cc-semaphore@patakuti/stylesheet.css");
+
+    #[test]
+    fn gnome_stylesheet_uses_the_same_hex_colors() {
+        assert!(
+            GNOME_STYLESHEET.contains(RUNNING),
+            "stylesheet.css .ccs-running must use {RUNNING}"
+        );
+        assert!(
+            GNOME_STYLESHEET.contains(WAITING),
+            "stylesheet.css .ccs-waiting must use {WAITING}"
+        );
+        assert!(
+            GNOME_STYLESHEET.contains(IDLE),
+            "stylesheet.css .ccs-idle must use {IDLE}"
+        );
+    }
+}
