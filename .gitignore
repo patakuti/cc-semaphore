@@ -1,0 +1,13 @@
+# Rust
+/target/
+
+# CLAUDE.md workflow docs (not tracked per CLAUDE.md policy)
+/01_requirements.md
+/02_design.md
+/03_plan.md
+/CLAUDE.md
+/docs/measurements.md
+
+# OS / editor noise
+.DS_Store
+*.swp
