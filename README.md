@@ -22,7 +22,8 @@
   (inotify監視 / WSL1ポーリング / スナップショット書き出し / CLI)
 - `crates/cc-semaphore-desktop` — Tauri v2 による Always-on-top 透過
   ウィンドウ / Windowsシステムトレイ(Phase 5〜6で追加予定)
-- `extensions/cc-semaphore@patakuti/` — GNOME Shell 46 拡張(Phase 3で追加予定)
+- `extensions/cc-semaphore@patakuti/` — GNOME Shell 46 拡張
+  (トップバーに状態別カウント表示、クリックでセッション一覧ポップアップ)
 - `ui/` — GNOME拡張以外のフロントエンドが共有する静的UIアセット
   (ビルド不要。npm/Node.jsは使用しない)
 - `docs/protocol.md` — backend/frontend間のスナップショットプロトコル仕様
@@ -47,9 +48,18 @@ cc-semaphored install-service  # systemd user unit を書き出す
 (無ければ `~/.cache/cc-semaphore/state.json`)に書き出す。設定ファイルは
 `~/.config/cc-semaphore/config.json`(任意)。詳細は `docs/protocol.md`。
 
+## GNOME Shell拡張のインストール(開発用)
+
+```sh
+ln -sfn "$(pwd)/extensions/cc-semaphore@patakuti" \
+  ~/.local/share/gnome-shell/extensions/cc-semaphore@patakuti
+# GNOME Shellをリスタート(X11: Alt+F2 → r → Enter。Waylandはログアウト/ログイン)
+gnome-extensions enable cc-semaphore@patakuti
+```
+
 ## 開発状況
 
-設計・計画フェーズ完了。実装は Phase 2(backendデーモン)まで完了。
-Ubuntu環境では `cc-semaphored` が実データで動作確認済み。
-次はPhase 3(GNOME Shell拡張)。
+設計・計画フェーズ完了。実装は Phase 3(GNOME Shell拡張)まで完了し、
+**Ubuntu環境で実用可能な状態**になった。実機(GNOME Shell 46 / X11)で
+パネル表示・ポップアップとも動作確認済み。次はPhase 4(共有UIアセット)。
 詳細は開発時のみ手元に置く設計・計画ドキュメント(Git管理外)を参照。

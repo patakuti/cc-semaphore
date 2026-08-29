@@ -1,0 +1,7 @@
+{
+  "uuid": "cc-semaphore@patakuti",
+  "name": "cc-semaphore",
+  "description": "Claude Code session monitor: shows running/waiting/idle counts in the top bar.",
+  "shell-version": ["46"],
+  "url": "https://github.com/patakuti/cc-semaphore"
+}
