@@ -1,0 +1,46 @@
+/* Colors must match crates/cc-semaphore-core/src/colors.rs (02_design.md §4.1). */
+
+.ccs-count {
+    font-weight: bold;
+    padding: 0 4px;
+}
+
+.ccs-running {
+    color: #2ec27e;
+}
+
+.ccs-waiting {
+    color: #f5c211;
+}
+
+.ccs-idle {
+    color: #e01b24;
+}
+
+.ccs-zero {
+    opacity: 0.35;
+}
+
+.ccs-blink-hidden {
+    opacity: 0;
+}
+
+.ccs-popup-dot {
+    font-weight: bold;
+    padding-right: 6px;
+}
+
+.ccs-popup-cwd {
+    opacity: 0.6;
+    padding-left: 6px;
+}
+
+.ccs-popup-elapsed {
+    opacity: 0.6;
+    padding-left: 6px;
+}
+
+.ccs-popup-empty {
+    padding: 6px 12px;
+    opacity: 0.7;
+}
