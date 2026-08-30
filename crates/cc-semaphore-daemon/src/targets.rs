@@ -4,22 +4,11 @@ use crate::config::Config;
 use crate::env;
 use std::path::PathBuf;
 
-/// `$XDG_RUNTIME_DIR/cc-semaphore`, falling back to `~/.cache/cc-semaphore`
-/// when `XDG_RUNTIME_DIR` isn't set.
-fn local_base_dir() -> PathBuf {
-    if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
-        PathBuf::from(runtime_dir).join("cc-semaphore")
-    } else {
-        env::home_dir().join(".cache/cc-semaphore")
-    }
-}
-
-pub fn local_state_path() -> PathBuf {
-    local_base_dir().join("state.json")
-}
+pub use cc_semaphore_core::local_state_path;
 
 pub fn lock_path() -> PathBuf {
-    local_base_dir().join("daemon.lock")
+    // Sibling of the state file, in the same per-user runtime directory.
+    local_state_path().with_file_name("daemon.lock")
 }
 
 /// Resolves the WSL1→Windows write target per 02_design.md §8's priority

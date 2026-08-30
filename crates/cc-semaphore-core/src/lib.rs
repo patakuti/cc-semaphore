@@ -6,11 +6,13 @@
 
 pub mod colors;
 pub mod format;
+pub mod paths;
 pub mod proc;
 pub mod snapshot;
 pub mod status;
 pub mod types;
 
+pub use paths::local_state_path;
 pub use proc::{is_alive, ProcSource};
 pub use snapshot::{build_snapshot, parse_session_record, DEFAULT_INCLUDE_KINDS};
 pub use status::map_status;
