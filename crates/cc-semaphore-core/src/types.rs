@@ -24,7 +24,7 @@ pub struct SessionRecord {
 }
 
 /// The three states cc-semaphore distinguishes. See 01_requirements.md §3.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SessionState {
     Running,
@@ -45,7 +45,7 @@ impl SessionState {
 }
 
 /// One session as it appears in the published snapshot. See 02_design.md §2.2.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionEntry {
     pub id: Option<String>,
     pub pid: u32,
@@ -63,7 +63,7 @@ pub struct SessionEntry {
     pub started_at: i64,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StateCounts {
     pub running: u32,
     pub waiting: u32,
@@ -71,7 +71,7 @@ pub struct StateCounts {
 }
 
 /// The backend↔frontend contract file. See 02_design.md §2.2.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Snapshot {
     pub version: u32,
     #[serde(rename = "generatedAt")]

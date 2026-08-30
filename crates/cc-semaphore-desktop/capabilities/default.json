@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capabilities for the main window: it listens for the Rust-emitted \"snapshot\" event, calls get_snapshot once on load (02_design.md §7.3), and starts a window drag from the data-tauri-drag-region header (§7.2).",
+  "windows": ["main"],
+  "permissions": ["core:event:default", "core:window:allow-start-dragging"]
+}

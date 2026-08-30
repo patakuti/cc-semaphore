@@ -1,6 +1,9 @@
 # Rust
 /target/
 
+# Tauri: auto-generated ACL schemas, regenerated on every build
+crates/cc-semaphore-desktop/gen/
+
 # CLAUDE.md workflow docs (not tracked per CLAUDE.md policy)
 /01_requirements.md
 /02_design.md
