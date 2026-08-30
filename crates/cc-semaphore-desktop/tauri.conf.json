@@ -22,6 +22,20 @@
         "skipTaskbar": true,
         "shadow": false,
         "visible": false
+      },
+      {
+        "label": "popup",
+        "url": "popup.html",
+        "title": "cc-semaphore",
+        "width": 360,
+        "height": 480,
+        "resizable": false,
+        "transparent": false,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": true,
+        "visible": false
       }
     ],
     "security": {
