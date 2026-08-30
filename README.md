@@ -62,7 +62,9 @@ gnome-extensions enable cc-semaphore@patakuti
 
 設計・計画フェーズ完了。実装は Phase 4(共有UIアセット)まで完了し、
 **Ubuntu環境で実用可能な状態**になった。実機(GNOME Shell 46 / X11)で
-パネル表示・ポップアップとも動作確認済み。次はPhase 5〜7(Tauriによる
-Always-on-top透過ウィンドウ・Windowsトレイ・仕上げ)で、Windows+WSL1側の
-実測(Phase 0-Cで後回しにした分)が必要になる。
+パネル表示・ポップアップとも動作確認済み。Windows+WSL1側の実測(Phase 0-C)も
+2台の実機WSL1機で完了しており、daemonはUbuntu機でmuslクロスビルドした
+静的バイナリをそのままWSL1に配布できることを確認済み。次はPhase 5〜7
+(TauriによるAlways-on-top透過ウィンドウ・Windowsトレイ・仕上げ、いずれも
+Windows側でビルド)。
 詳細は開発時のみ手元に置く設計・計画ドキュメント(Git管理外)を参照。
