@@ -18,6 +18,20 @@ pub fn color_for(state: SessionState) -> &'static str {
     }
 }
 
+/// The same colors as `(r, g, b)` bytes, for consumers that render pixels
+/// rather than CSS (the Windows tray icon rasterizer, §6.1).
+pub fn rgb_for(state: SessionState) -> (u8, u8, u8) {
+    hex_to_rgb(color_for(state))
+}
+
+fn hex_to_rgb(hex: &str) -> (u8, u8, u8) {
+    let h = hex.trim_start_matches('#');
+    let r = u8::from_str_radix(&h[0..2], 16).expect("color_for() always returns valid hex");
+    let g = u8::from_str_radix(&h[2..4], 16).expect("color_for() always returns valid hex");
+    let b = u8::from_str_radix(&h[4..6], 16).expect("color_for() always returns valid hex");
+    (r, g, b)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -53,5 +67,12 @@ mod tests {
             "panel.css must use {WAITING}"
         );
         assert!(UI_PANEL_CSS.contains(IDLE), "panel.css must use {IDLE}");
+    }
+
+    #[test]
+    fn rgb_for_matches_the_hex_constants() {
+        assert_eq!(rgb_for(SessionState::Running), (0x2e, 0xc2, 0x7e));
+        assert_eq!(rgb_for(SessionState::Waiting), (0xf5, 0xc2, 0x11));
+        assert_eq!(rgb_for(SessionState::Idle), (0xe0, 0x1b, 0x24));
     }
 }

@@ -3,6 +3,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod geometry;
+mod icon;
+mod tray;
+mod tray_state;
 mod watcher;
 
 use cc_semaphore_core::Snapshot;
@@ -52,6 +55,12 @@ fn get_snapshot() -> Option<SnapshotEvent> {
         .map(|snapshot| SnapshotEvent { snapshot, home_dir })
 }
 
+fn read_counts(state_path: &std::path::Path) -> cc_semaphore_core::StateCounts {
+    read_snapshot(state_path)
+        .map(|s| s.counts)
+        .unwrap_or_default()
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![get_snapshot])
@@ -75,16 +84,25 @@ fn main() {
                 });
             }
 
-            let home_dir = std::env::var("HOME").ok();
+            if let Some(popup) = app.get_webview_window("popup") {
+                tray::hide_popup_on_focus_lost(&popup);
+            }
+
             let state_path = cc_semaphore_core::local_state_path();
+            tray::setup(app.handle(), read_counts(&state_path))?;
+
+            let home_dir = std::env::var("HOME").ok();
             let rx = watcher::spawn(state_path.clone());
             let app_handle = app.handle().clone();
             thread::spawn(move || {
                 // The initial state is fetched by the webview itself via
-                // the get_snapshot command; this loop only re-emits on
-                // every subsequent change the watcher reports.
+                // the get_snapshot command, and the tray's baseline is
+                // fetched synchronously in tray::setup() above; this loop
+                // only reacts to every subsequent change the watcher
+                // reports.
                 while rx.recv().is_ok() {
                     if let Some(snapshot) = read_snapshot(&state_path) {
+                        tray::on_snapshot(&app_handle, &snapshot.counts);
                         let _ = app_handle.emit(
                             "snapshot",
                             SnapshotEvent {
