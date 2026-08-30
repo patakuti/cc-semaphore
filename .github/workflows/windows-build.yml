@@ -1,0 +1,40 @@
+name: Windows build
+
+# Builds cc-semaphore-desktop (the Tauri v2 app) on windows-latest, since
+# this project's dev machine is Ubuntu. See 02_design.md §7.1.1.
+#
+# Triggered on every push to a pull request (a pre-merge gate: catch
+# Windows-only compile errors before they land on main) and on demand via
+# workflow_dispatch. Deliberately not run on push to main — CI stays a
+# pre-merge check, not a post-merge one, per the project's stated policy.
+on:
+  pull_request:
+    paths:
+      - "crates/cc-semaphore-desktop/**"
+      - "crates/cc-semaphore-core/**"
+      - "ui/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/windows-build.yml"
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Build cc-semaphore-desktop
+        run: cargo build --release -p cc-semaphore-desktop
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cc-semaphore-desktop-windows
+          path: target/release/cc-semaphore-desktop.exe
+          if-no-files-found: error
