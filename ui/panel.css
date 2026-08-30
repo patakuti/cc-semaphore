@@ -6,7 +6,6 @@
     font-family: -apple-system, "Segoe UI", "Cantarell", sans-serif;
     font-size: 13px;
     color: #f2f2f2;
-    -webkit-app-region: no-drag;
 }
 
 /* Always-on-top transparent window (02_design.md §7.2). */
@@ -27,7 +26,6 @@
 }
 
 .ccs-drag-handle {
-    -webkit-app-region: drag;
     height: 14px;
 }
 
