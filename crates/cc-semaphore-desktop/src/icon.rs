@@ -7,18 +7,20 @@
 //!
 //! Two visual phases exist per (value, state), used to blink an alert
 //! without ever going fully transparent (user feedback: a blink to blank
-//! read as ugly "black stripes" in the tray):
+//! read as ugly "black stripes" in the tray) and without changing shape
+//! (an earlier circle/square version also didn't land well):
 //! - [`IconPhase::Normal`]: a filled circle in the state color, digit
-//!   knocked out.
-//! - [`IconPhase::Inverted`]: a filled square (the full icon) in the
-//!   state color, digit knocked out — used as the alternate blink frame.
+//!   knocked out in whichever of black/white contrasts best
+//!   ([`contrast_color`]).
+//! - [`IconPhase::Inverted`]: the same circle with foreground and
+//!   background swapped — filled in the contrast color, digit knocked
+//!   out in the state color.
 //!
 //! Both phases fill an opaque shape and knock the digit out of it, rather
 //! than drawing a thin outline around a transparent-background digit:
 //! a 1px synthetic outline anti-aliases badly at 32px regardless of its
 //! color (user feedback, after the first attempt fixed contrast but not
-//! the underlying "blurry outline" problem). The knockout color is still
-//! chosen by contrast against the fill (see [`contrast_color`]).
+//! the underlying "blurry outline" problem).
 
 use ab_glyph::{point, Font, FontRef, GlyphId, OutlinedGlyph, PxScale, ScaleFont};
 use cc_semaphore_core::SessionState;
@@ -83,9 +85,10 @@ impl IconCache {
         self.cache.entry((key, state, phase)).or_insert_with(|| {
             let text = key_text(key);
             let rgb = cc_semaphore_core::colors::rgb_for(state);
+            let contrast = contrast_color(rgb);
             match phase {
-                IconPhase::Normal => render_circle(&text, rgb),
-                IconPhase::Inverted => render_square(&text, rgb),
+                IconPhase::Normal => render_circle(&text, rgb, contrast),
+                IconPhase::Inverted => render_circle(&text, contrast, rgb),
             }
         })
     }
@@ -96,7 +99,7 @@ impl IconCache {
     /// a glance.
     pub fn offline(&mut self) -> &IconRgba {
         self.offline
-            .get_or_insert_with(|| render_square("?", (128, 128, 128)))
+            .get_or_insert_with(|| render_square("?", (128, 128, 128), (255, 255, 255)))
     }
 }
 
@@ -192,28 +195,31 @@ fn circle_mask() -> Vec<f32> {
     mask
 }
 
-/// Fills `shape` (an alpha mask) with `rgb`, knocking `text` out in
-/// whichever of black/white contrasts best against `rgb`.
-fn render_masked(text: &str, rgb: (u8, u8, u8), shape: &[f32]) -> IconRgba {
+/// Fills `shape` (an alpha mask) with `bg`, knocking `text` out in `fg`.
+fn render_masked(text: &str, bg: (u8, u8, u8), fg: (u8, u8, u8), shape: &[f32]) -> IconRgba {
     let coverage = glyph_coverage(text);
-    let contrast = contrast_color(rgb);
     let mut out = Vec::with_capacity(coverage.len() * 4);
     for i in 0..coverage.len() {
         let digit = coverage[i];
-        out.push(lerp(rgb.0, contrast.0, digit));
-        out.push(lerp(rgb.1, contrast.1, digit));
-        out.push(lerp(rgb.2, contrast.2, digit));
+        out.push(lerp(bg.0, fg.0, digit));
+        out.push(lerp(bg.1, fg.1, digit));
+        out.push(lerp(bg.2, fg.2, digit));
         out.push((shape[i] * 255.0).round().clamp(0.0, 255.0) as u8);
     }
     out
 }
 
-fn render_circle(text: &str, rgb: (u8, u8, u8)) -> IconRgba {
-    render_masked(text, rgb, &circle_mask())
+fn render_circle(text: &str, bg: (u8, u8, u8), fg: (u8, u8, u8)) -> IconRgba {
+    render_masked(text, bg, fg, &circle_mask())
 }
 
-fn render_square(text: &str, rgb: (u8, u8, u8)) -> IconRgba {
-    render_masked(text, rgb, &vec![1.0f32; (ICON_SIZE * ICON_SIZE) as usize])
+fn render_square(text: &str, bg: (u8, u8, u8), fg: (u8, u8, u8)) -> IconRgba {
+    render_masked(
+        text,
+        bg,
+        fg,
+        &vec![1.0f32; (ICON_SIZE * ICON_SIZE) as usize],
+    )
 }
 
 fn lerp(a: u8, b: u8, t: f32) -> u8 {
@@ -229,27 +235,27 @@ mod tests {
     #[test]
     fn renders_expected_buffer_size() {
         assert_eq!(
-            render_circle("5", (0, 255, 0)).len(),
+            render_circle("5", (0, 255, 0), (0, 0, 0)).len(),
             (ICON_SIZE * ICON_SIZE * 4) as usize
         );
         assert_eq!(
-            render_square("5", (0, 255, 0)).len(),
+            render_square("5", (0, 255, 0), (0, 0, 0)).len(),
             (ICON_SIZE * ICON_SIZE * 4) as usize
         );
     }
 
     #[test]
     fn square_is_fully_opaque() {
-        let rgba = render_square("5", (0, 255, 0));
+        let rgba = render_square("5", (0, 255, 0), (0, 0, 0));
         assert!(
             rgba.chunks_exact(4).all(|px| px[3] == 255),
-            "the inverted phase must never be transparent"
+            "the offline icon must never be transparent"
         );
     }
 
     #[test]
     fn circle_is_transparent_at_the_corners_and_opaque_at_the_center() {
-        let rgba = render_circle("5", (0, 255, 0));
+        let rgba = render_circle("5", (0, 255, 0), (0, 0, 0));
         let pixel_alpha = |x: u32, y: u32| rgba[((y * ICON_SIZE + x) * 4 + 3) as usize];
         assert_eq!(pixel_alpha(0, 0), 0, "corner must be outside the circle");
         assert_eq!(
@@ -261,6 +267,25 @@ mod tests {
             pixel_alpha(ICON_SIZE / 2, ICON_SIZE / 2),
             255,
             "center must be inside the circle"
+        );
+    }
+
+    #[test]
+    fn inverted_phase_swaps_fill_and_digit_colors() {
+        // Center pixel (well inside the digit "1"'s stroke for a
+        // single-char glyph) should be background in Normal and
+        // foreground in Inverted, and vice versa at a background-only
+        // pixel near the circle's edge.
+        let mut cache = IconCache::new();
+        let normal = cache
+            .get(1, SessionState::Running, IconPhase::Normal)
+            .clone();
+        let inverted = cache
+            .get(1, SessionState::Running, IconPhase::Inverted)
+            .clone();
+        assert_ne!(
+            normal, inverted,
+            "Normal and Inverted must render differently"
         );
     }
 
