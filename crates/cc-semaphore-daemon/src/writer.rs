@@ -23,21 +23,37 @@ impl Writer {
     /// semantically identical to the last one written. A failure writing
     /// to one target (e.g. an unmounted `/mnt/c`) is logged and does not
     /// prevent writing to the others, nor does it crash the daemon.
+    ///
+    /// Also touches `heartbeat.json` next to every target on *every* call,
+    /// regardless of whether `state.json` itself changed — that's the
+    /// signal readers use to tell "daemon alive, nothing changed" apart
+    /// from "daemon has stopped" (cc_semaphore_core::heartbeat).
     pub fn write(&mut self, snapshot: &Snapshot) {
         let comparable = comparable_json(snapshot);
-        if self.last_comparable.as_deref() == Some(comparable.as_str()) {
-            return;
+        if self.last_comparable.as_deref() != Some(comparable.as_str()) {
+            let full_json =
+                serde_json::to_vec_pretty(snapshot).expect("Snapshot always serializes");
+            for target in &self.targets {
+                if let Err(e) = write_atomic(target, &full_json) {
+                    eprintln!(
+                        "cc-semaphored: warning: failed to write {}: {e}",
+                        target.display()
+                    );
+                }
+            }
+            self.last_comparable = Some(comparable);
         }
-        let full_json = serde_json::to_vec_pretty(snapshot).expect("Snapshot always serializes");
+
+        let heartbeat = format!(r#"{{"generatedAt":{}}}"#, snapshot.generated_at).into_bytes();
         for target in &self.targets {
-            if let Err(e) = write_atomic(target, &full_json) {
+            let path = cc_semaphore_core::heartbeat::heartbeat_path(target);
+            if let Err(e) = write_atomic(&path, &heartbeat) {
                 eprintln!(
-                    "cc-semaphored: warning: failed to write {}: {e}",
-                    target.display()
+                    "cc-semaphored: warning: failed to write heartbeat {}: {e}",
+                    path.display()
                 );
             }
         }
-        self.last_comparable = Some(comparable);
     }
 }
 

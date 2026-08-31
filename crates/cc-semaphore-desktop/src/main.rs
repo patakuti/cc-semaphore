@@ -15,12 +15,19 @@ use std::time::Duration;
 use tauri::{Emitter, Manager};
 
 /// The event payload emitted to the webview on every change. See
-/// 02_design.md §7.3 and ui/tauri-bridge.js.
+/// 02_design.md §7.3 and ui/tauri-bridge.js. `daemon_alive` reflects the
+/// heartbeat at the moment this payload was built (02_design.md §3.9); it
+/// only covers the "loaded/changed while already down" case; the
+/// "went down with no further changes" case is covered separately by the
+/// tray's periodic "daemon-status" event (tray.rs), since nothing here
+/// re-fires on its own when the daemon simply stops.
 #[derive(Serialize, Clone)]
 struct SnapshotEvent {
     snapshot: Snapshot,
     #[serde(rename = "homeDir")]
     home_dir: Option<String>,
+    #[serde(rename = "daemonAlive")]
+    daemon_alive: bool,
 }
 
 /// Reads and parses the snapshot file, tolerating a torn read (the writer
@@ -51,8 +58,13 @@ fn read_snapshot(path: &std::path::Path) -> Option<Snapshot> {
 #[tauri::command]
 fn get_snapshot() -> Option<SnapshotEvent> {
     let home_dir = std::env::var("HOME").ok();
-    read_snapshot(&cc_semaphore_core::local_state_path())
-        .map(|snapshot| SnapshotEvent { snapshot, home_dir })
+    let state_path = cc_semaphore_core::local_state_path();
+    let daemon_alive = cc_semaphore_core::heartbeat::daemon_alive(&state_path);
+    read_snapshot(&state_path).map(|snapshot| SnapshotEvent {
+        snapshot,
+        home_dir,
+        daemon_alive,
+    })
 }
 
 fn read_counts(state_path: &std::path::Path) -> cc_semaphore_core::StateCounts {
@@ -69,8 +81,12 @@ fn main() {
                 .get_webview_window("main")
                 .expect("the \"main\" window is declared in tauri.conf.json");
 
+            // The panel starts hidden by default (user feedback: it's a
+            // detail view, not something to see on every launch) and is
+            // toggled via the tray's "Show panel" menu item
+            // (tray::toggle_main_window). Still restore its last geometry
+            // so it opens where the user left it once shown.
             geometry::restore(&window);
-            let _ = window.show();
 
             {
                 let event_window = window.clone();
@@ -89,7 +105,7 @@ fn main() {
             }
 
             let state_path = cc_semaphore_core::local_state_path();
-            tray::setup(app.handle(), read_counts(&state_path))?;
+            tray::setup(app.handle(), state_path.clone(), read_counts(&state_path))?;
 
             let home_dir = std::env::var("HOME").ok();
             let rx = watcher::spawn(state_path.clone());
@@ -103,11 +119,13 @@ fn main() {
                 while rx.recv().is_ok() {
                     if let Some(snapshot) = read_snapshot(&state_path) {
                         tray::on_snapshot(&app_handle, &snapshot.counts);
+                        let daemon_alive = cc_semaphore_core::heartbeat::daemon_alive(&state_path);
                         let _ = app_handle.emit(
                             "snapshot",
                             SnapshotEvent {
                                 snapshot,
                                 home_dir: home_dir.clone(),
+                                daemon_alive,
                             },
                         );
                     }

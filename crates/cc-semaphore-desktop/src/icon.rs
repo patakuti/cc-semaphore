@@ -1,22 +1,38 @@
 //! Renders the tray icon's digit at runtime and caches the result
 //! (02_design.md §6.1). `ab_glyph` rasterizes the embedded font's glyph
-//! coverage; `tiny-skia`'s `Pixmap` is the actual pixel canvas the glyphs
-//! (fill + a 1px dark outline for legibility) are composited into.
+//! coverage; `tiny-skia`'s `Pixmap` is the actual pixel canvas the
+//! "normal" phase (fill + a 1px outline) is composited into.
+//!
+//! Two visual phases exist per (value, state), used to blink an alert
+//! without ever going fully transparent (user feedback: a blink to blank
+//! read as ugly "black stripes" in the tray):
+//! - [`IconPhase::Normal`]: transparent background, digit filled in the
+//!   state color, with a 1px outline.
+//! - [`IconPhase::Inverted`]: an opaque block filled with the state color,
+//!   digit knocked out — used as the alternate blink frame and nowhere
+//!   else.
+//!
+//! Both the fill's outline (Normal) and the knockout color (Inverted) are
+//! chosen by contrast against the fill color rather than a fixed dark
+//! color: a fixed dark outline made the red `idle` digit hard to read
+//! (dark-on-dark), per user feedback.
 
-use ab_glyph::{point, Font, FontRef, Glyph, GlyphId, OutlinedGlyph, PxScale, ScaleFont};
+use ab_glyph::{point, Font, FontRef, GlyphId, OutlinedGlyph, PxScale, ScaleFont};
 use cc_semaphore_core::SessionState;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use tiny_skia::{Pixmap, PremultipliedColorU8};
 
 pub const ICON_SIZE: u32 = 32;
-const FONT_SCALE: f32 = 24.0;
-const OUTLINE_RGB: (u8, u8, u8) = (20, 20, 20);
+/// Target span (in px) the widest dimension of the glyph should fill,
+/// leaving a small margin inside the 32px icon (user feedback: digits
+/// were too small — make them "as large as legibly possible").
+const FIT_TARGET: f32 = 30.0;
 
 /// Values are clamped into the cache key range here: 0..=99 map to
 /// themselves, anything >=100 collapses to "9+" (02_design.md §6.1) so the
 /// cache never grows past 100 numeric buckets + 1 overflow bucket, times 3
-/// states.
+/// states, times 2 phases.
 fn clamp_key(value: u32) -> u8 {
     value.min(100) as u8
 }
@@ -40,11 +56,19 @@ fn font() -> &'static FontRef<'static> {
 /// top to bottom — the format `tauri::image::Image::new_owned` expects.
 pub type IconRgba = Vec<u8>;
 
-/// Caches rasterized icons by `(clamped value, state)`. At most
-/// 101 * 3 = 303 entries ever exist; in practice only a handful are used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum IconPhase {
+    Normal,
+    Inverted,
+}
+
+/// Caches rasterized icons by `(clamped value, state, phase)`. At most
+/// 101 * 3 * 2 = 606 entries ever exist; in practice only a handful are
+/// used.
 #[derive(Default)]
 pub struct IconCache {
-    cache: HashMap<(u8, SessionState), IconRgba>,
+    cache: HashMap<(u8, SessionState, IconPhase), IconRgba>,
+    offline: Option<IconRgba>,
 }
 
 impl IconCache {
@@ -52,38 +76,69 @@ impl IconCache {
         IconCache::default()
     }
 
-    /// Blank (fully transparent) icon, used for the blink "off" phase.
-    pub fn blank(&self) -> IconRgba {
-        vec![0u8; (ICON_SIZE * ICON_SIZE * 4) as usize]
+    pub fn get(&mut self, value: u32, state: SessionState, phase: IconPhase) -> &IconRgba {
+        let key = clamp_key(value);
+        self.cache.entry((key, state, phase)).or_insert_with(|| {
+            let text = key_text(key);
+            let rgb = cc_semaphore_core::colors::rgb_for(state);
+            match phase {
+                IconPhase::Normal => render_normal(&text, rgb),
+                IconPhase::Inverted => render_block(&text, rgb),
+            }
+        })
     }
 
-    pub fn get(&mut self, value: u32, state: SessionState) -> &IconRgba {
-        let key = clamp_key(value);
-        self.cache
-            .entry((key, state))
-            .or_insert_with(|| render(&key_text(key), cc_semaphore_core::colors::rgb_for(state)))
+    /// Shown when the daemon's heartbeat has gone stale (02_design.md
+    /// §3.9): a neutral gray block distinct from every real state color.
+    pub fn offline(&mut self) -> &IconRgba {
+        self.offline
+            .get_or_insert_with(|| render_block("?", (128, 128, 128)))
     }
 }
 
-/// Lays out `text` (1-2 chars) centered in a 32x32 canvas, filled with
-/// `rgb` and outlined 1px in a dark color for legibility against any tray
-/// background.
-fn render(text: &str, rgb: (u8, u8, u8)) -> IconRgba {
-    let scaled = font().as_scaled(PxScale::from(FONT_SCALE));
+/// Picks black or white, whichever contrasts better against `rgb`, by a
+/// standard perceptual-luminance approximation. This is what makes the
+/// red `idle` fill get a white outline/knockout while green/yellow get
+/// black, without hardcoding per-state exceptions.
+fn contrast_color(rgb: (u8, u8, u8)) -> (u8, u8, u8) {
+    let luminance = 0.2126 * rgb.0 as f32 + 0.7152 * rgb.1 as f32 + 0.0722 * rgb.2 as f32;
+    if luminance > 140.0 {
+        (0, 0, 0)
+    } else {
+        (255, 255, 255)
+    }
+}
 
-    let mut glyphs: Vec<Glyph> = Vec::new();
+/// The font size that makes `text`'s widest dimension span `FIT_TARGET`
+/// px, computed by measuring at a large reference size and scaling down —
+/// robust to both single digits (height-bound) and "9+"/two-digit numbers
+/// (width-bound).
+fn fitted_scale(text: &str) -> PxScale {
+    const PROBE: f32 = 100.0;
+    let scaled = font().as_scaled(PxScale::from(PROBE));
+    let mut width = 0.0f32;
+    for ch in text.chars() {
+        width += scaled.h_advance(scaled.glyph_id(ch));
+    }
+    let height = scaled.ascent() - scaled.descent();
+    let factor = (FIT_TARGET / width).min(FIT_TARGET / height);
+    PxScale::from(PROBE * factor)
+}
+
+/// Rasterizes `text`, auto-fit and centered, into a 32x32 coverage mask
+/// (0.0 = uncovered, 1.0 = fully covered).
+fn glyph_coverage(text: &str) -> Vec<f32> {
+    let scale = fitted_scale(text);
+    let scaled = font().as_scaled(scale);
+
+    let mut glyphs = Vec::new();
     let mut caret = 0.0f32;
     for ch in text.chars() {
         let id: GlyphId = scaled.glyph_id(ch);
-        glyphs.push(id.with_scale_and_position(scaled.scale(), point(caret, 0.0)));
+        glyphs.push(id.with_scale_and_position(scale, point(caret, 0.0)));
         caret += scaled.h_advance(id);
     }
     let total_width = caret;
-
-    let outlined: Vec<OutlinedGlyph> = glyphs
-        .into_iter()
-        .filter_map(|g| font().outline_glyph(g))
-        .collect();
 
     // Vertically center on the font's own ascent/descent rather than each
     // glyph's ink bounds, so digits with different heights (e.g. no
@@ -93,6 +148,11 @@ fn render(text: &str, rgb: (u8, u8, u8)) -> IconRgba {
     let text_height = ascent - descent;
     let offset_x = ((ICON_SIZE as f32 - total_width) / 2.0).round() as i32;
     let offset_y = ((ICON_SIZE as f32 - text_height) / 2.0 + ascent).round() as i32;
+
+    let outlined: Vec<OutlinedGlyph> = glyphs
+        .into_iter()
+        .filter_map(|g| font().outline_glyph(g))
+        .collect();
 
     let mut coverage = vec![0f32; (ICON_SIZE * ICON_SIZE) as usize];
     for glyph in &outlined {
@@ -106,16 +166,7 @@ fn render(text: &str, rgb: (u8, u8, u8)) -> IconRgba {
             }
         });
     }
-
-    let outline_coverage = dilate(&coverage);
-
-    let mut pixmap = Pixmap::new(ICON_SIZE, ICON_SIZE).expect("32x32 is a valid pixmap size");
-    let pixels = pixmap.pixels_mut();
-    for i in 0..coverage.len() {
-        pixels[i] = composite(outline_coverage[i], OUTLINE_RGB, coverage[i], rgb);
-    }
-
-    unpremultiply(pixmap.pixels())
+    coverage
 }
 
 /// Max coverage among each pixel's 8 neighbors (plus itself), giving a 1px
@@ -138,6 +189,43 @@ fn dilate(coverage: &[f32]) -> Vec<f32> {
         }
     }
     out
+}
+
+/// Transparent background, digit filled with `rgb`, outlined 1px in
+/// whichever of black/white contrasts best against `rgb`.
+fn render_normal(text: &str, rgb: (u8, u8, u8)) -> IconRgba {
+    let coverage = glyph_coverage(text);
+    let outline_rgb = contrast_color(rgb);
+    let outline_coverage = dilate(&coverage);
+
+    let mut pixmap = Pixmap::new(ICON_SIZE, ICON_SIZE).expect("32x32 is a valid pixmap size");
+    let pixels = pixmap.pixels_mut();
+    for i in 0..coverage.len() {
+        pixels[i] = composite(outline_coverage[i], outline_rgb, coverage[i], rgb);
+    }
+    unpremultiply(pixmap.pixels())
+}
+
+/// An opaque `rgb`-filled square with the digit knocked out in whichever
+/// of black/white contrasts best against `rgb` — e.g. a black "1" on a
+/// solid yellow block, or a white "2" on solid red.
+fn render_block(text: &str, rgb: (u8, u8, u8)) -> IconRgba {
+    let coverage = glyph_coverage(text);
+    let contrast = contrast_color(rgb);
+    let mut out = Vec::with_capacity(coverage.len() * 4);
+    for c in coverage {
+        out.push(lerp(rgb.0, contrast.0, c));
+        out.push(lerp(rgb.1, contrast.1, c));
+        out.push(lerp(rgb.2, contrast.2, c));
+        out.push(255);
+    }
+    out
+}
+
+fn lerp(a: u8, b: u8, t: f32) -> u8 {
+    (a as f32 + (b as f32 - a as f32) * t.clamp(0.0, 1.0))
+        .round()
+        .clamp(0.0, 255.0) as u8
 }
 
 /// Straight-alpha "src-over-src-over-transparent" composite of the outline
@@ -195,24 +283,51 @@ mod tests {
 
     #[test]
     fn renders_expected_buffer_size() {
-        let rgba = render("5", (0, 255, 0));
-        assert_eq!(rgba.len(), (ICON_SIZE * ICON_SIZE * 4) as usize);
+        assert_eq!(
+            render_normal("5", (0, 255, 0)).len(),
+            (ICON_SIZE * ICON_SIZE * 4) as usize
+        );
+        assert_eq!(
+            render_block("5", (0, 255, 0)).len(),
+            (ICON_SIZE * ICON_SIZE * 4) as usize
+        );
     }
 
     #[test]
-    fn renders_some_visible_pixels() {
-        let rgba = render("5", (0, 255, 0));
+    fn normal_renders_some_visible_pixels() {
+        let rgba = render_normal("5", (0, 255, 0));
         let has_visible = rgba.chunks_exact(4).any(|px| px[3] > 0);
         assert!(has_visible, "expected at least some non-transparent pixels");
     }
 
     #[test]
+    fn block_is_fully_opaque() {
+        let rgba = render_block("5", (0, 255, 0));
+        assert!(
+            rgba.chunks_exact(4).all(|px| px[3] == 255),
+            "the inverted phase must never be transparent"
+        );
+    }
+
+    #[test]
     fn cache_reuses_the_same_buffer_for_repeated_lookups() {
         let mut cache = IconCache::new();
-        let a = cache.get(3, SessionState::Running).clone();
-        let b = cache.get(3, SessionState::Running).clone();
+        let a = cache
+            .get(3, SessionState::Running, IconPhase::Normal)
+            .clone();
+        let b = cache
+            .get(3, SessionState::Running, IconPhase::Normal)
+            .clone();
         assert_eq!(a, b);
         assert_eq!(cache.cache.len(), 1);
+    }
+
+    #[test]
+    fn normal_and_inverted_are_cached_separately() {
+        let mut cache = IconCache::new();
+        cache.get(3, SessionState::Running, IconPhase::Normal);
+        cache.get(3, SessionState::Running, IconPhase::Inverted);
+        assert_eq!(cache.cache.len(), 2);
     }
 
     #[test]
@@ -224,9 +339,17 @@ mod tests {
     }
 
     #[test]
-    fn blank_icon_is_fully_transparent() {
-        let cache = IconCache::new();
-        let rgba = cache.blank();
-        assert!(rgba.iter().all(|&b| b == 0));
+    fn contrast_picks_black_for_bright_colors_and_white_for_dark() {
+        assert_eq!(contrast_color((0x2e, 0xc2, 0x7e)), (0, 0, 0)); // running: green
+        assert_eq!(contrast_color((0xf5, 0xc2, 0x11)), (0, 0, 0)); // waiting: yellow
+        assert_eq!(contrast_color((0xe0, 0x1b, 0x24)), (255, 255, 255)); // idle: red
+    }
+
+    #[test]
+    fn offline_icon_is_cached_across_calls() {
+        let mut cache = IconCache::new();
+        let a = cache.offline().clone();
+        let b = cache.offline().clone();
+        assert_eq!(a, b);
     }
 }

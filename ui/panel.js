@@ -63,12 +63,18 @@ function renderRow(session, homeDir, now) {
 // (no data yet); `opts.homeDir` enables `~` shortening; `opts.now`
 // defaults to the current time and should be passed explicitly by callers
 // that redraw on a timer, so a whole batch of rows uses one consistent
-// clock reading.
+// clock reading. `opts.daemonAlive === false` (02_design.md §3.9) shows a
+// warning instead of the session list — an empty list and "daemon isn't
+// running" are different situations and must not look the same.
 export function renderPanel(snapshot, rootEl, opts = {}) {
     const homeDir = opts.homeDir ?? null;
     const now = opts.now ?? Date.now();
 
     rootEl.textContent = '';
+    if (opts.daemonAlive === false) {
+        rootEl.appendChild(el('div', 'ccs-daemon-down', '⚠ daemon not running'));
+        return;
+    }
     const sessions = snapshot?.sessions ?? [];
     if (sessions.length === 0) {
         rootEl.appendChild(el('div', 'ccs-empty', 'No Claude Code sessions'));
@@ -80,9 +86,12 @@ export function renderPanel(snapshot, rootEl, opts = {}) {
         rootEl.appendChild(renderRow(session, homeDir, now));
 }
 
-// Renders the three running/waiting/idle counters into `rootEl`.
-export function renderCounts(counts, rootEl) {
+// Renders the three running/waiting/idle counters into `rootEl`. Cleared
+// (not zeroed) when the daemon is down, per the same reasoning as above.
+export function renderCounts(counts, rootEl, opts = {}) {
     rootEl.textContent = '';
+    if (opts.daemonAlive === false)
+        return;
     for (const key of ['running', 'waiting', 'idle']) {
         rootEl.appendChild(el('span', `ccs-count ccs-${key}`, String(counts?.[key] ?? 0)));
     }
