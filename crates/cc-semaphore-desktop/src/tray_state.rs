@@ -25,13 +25,15 @@ enum Mode {
     Alert { kind: AlertKind, deadline_ms: i64 },
 }
 
-/// What the icon should show right now.
+/// What the icon should show right now. Rotation always shows `Normal`;
+/// an active alert blinks between `Normal` and `Inverted` every
+/// `BLINK_INTERVAL_MS` (icon.rs renders `Inverted` as a solid block with
+/// the digit knocked out, never as a blank icon — see icon.rs's doc
+/// comment for why).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Display {
-    /// Render this state's count as the digit.
-    Show(SessionState, u32),
-    /// The blink "off" phase during an alert: show nothing.
-    Blank,
+    Normal(SessionState, u32),
+    Inverted(SessionState, u32),
 }
 
 pub struct TrayState {
@@ -93,19 +95,21 @@ impl TrayState {
             Mode::Rotate => {
                 let phase = now_ms.rem_euclid(ROTATE_INTERVAL_MS * 3) / ROTATE_INTERVAL_MS;
                 match phase {
-                    0 => Display::Show(SessionState::Running, counts.running),
-                    1 => Display::Show(SessionState::Waiting, counts.waiting),
-                    _ => Display::Show(SessionState::Idle, counts.idle),
+                    0 => Display::Normal(SessionState::Running, counts.running),
+                    1 => Display::Normal(SessionState::Waiting, counts.waiting),
+                    _ => Display::Normal(SessionState::Idle, counts.idle),
                 }
             }
             Mode::Alert { kind, .. } => {
+                let (state, value) = match kind {
+                    AlertKind::Waiting => (SessionState::Waiting, counts.waiting),
+                    AlertKind::Idle => (SessionState::Idle, counts.idle),
+                };
                 let visible = now_ms.rem_euclid(BLINK_INTERVAL_MS * 2) < BLINK_INTERVAL_MS;
-                if !visible {
-                    return Display::Blank;
-                }
-                match kind {
-                    AlertKind::Waiting => Display::Show(SessionState::Waiting, counts.waiting),
-                    AlertKind::Idle => Display::Show(SessionState::Idle, counts.idle),
+                if visible {
+                    Display::Normal(state, value)
+                } else {
+                    Display::Inverted(state, value)
                 }
             }
         }
@@ -144,7 +148,7 @@ mod tests {
         t.on_counts(counts(1, 1, 0), 1_000);
         assert_eq!(
             t.display(&counts(1, 1, 0), 1_000),
-            Display::Show(SessionState::Waiting, 1)
+            Display::Normal(SessionState::Waiting, 1)
         );
     }
 
@@ -155,7 +159,7 @@ mod tests {
         t.on_counts(counts(1, 0, 1), 1_000);
         assert_eq!(
             t.display(&counts(1, 0, 1), 1_000),
-            Display::Show(SessionState::Idle, 1)
+            Display::Normal(SessionState::Idle, 1)
         );
     }
 
@@ -174,7 +178,7 @@ mod tests {
         t.on_counts(counts(0, 1, 1), 1_000);
         assert_eq!(
             t.display(&counts(0, 1, 1), 1_000),
-            Display::Show(SessionState::Waiting, 1)
+            Display::Normal(SessionState::Waiting, 1)
         );
     }
 
@@ -187,7 +191,7 @@ mod tests {
         t.expire(31_000); // the original deadline: must NOT have expired
         assert_eq!(
             t.display(&counts(0, 2, 0), 31_000),
-            Display::Show(SessionState::Waiting, 2),
+            Display::Normal(SessionState::Waiting, 2),
             "extension should keep the alert active past the original deadline"
         );
     }
@@ -200,7 +204,7 @@ mod tests {
         t.on_counts(counts(0, 1, 1), 2_000); // waiting increases -> switch over
         assert_eq!(
             t.display(&counts(0, 1, 1), 2_000),
-            Display::Show(SessionState::Waiting, 1)
+            Display::Normal(SessionState::Waiting, 1)
         );
     }
 
@@ -225,19 +229,19 @@ mod tests {
     fn rotation_cycles_running_waiting_idle_every_2s() {
         let t = TrayState::new();
         let c = counts(1, 2, 3);
-        assert_eq!(t.display(&c, 0), Display::Show(SessionState::Running, 1));
+        assert_eq!(t.display(&c, 0), Display::Normal(SessionState::Running, 1));
         assert_eq!(
             t.display(&c, 1_999),
-            Display::Show(SessionState::Running, 1)
+            Display::Normal(SessionState::Running, 1)
         );
         assert_eq!(
             t.display(&c, 2_000),
-            Display::Show(SessionState::Waiting, 2)
+            Display::Normal(SessionState::Waiting, 2)
         );
-        assert_eq!(t.display(&c, 4_000), Display::Show(SessionState::Idle, 3));
+        assert_eq!(t.display(&c, 4_000), Display::Normal(SessionState::Idle, 3));
         assert_eq!(
             t.display(&c, 6_000),
-            Display::Show(SessionState::Running, 1)
+            Display::Normal(SessionState::Running, 1)
         );
     }
 
@@ -248,17 +252,23 @@ mod tests {
         t.on_counts(counts(0, 1, 0), 0);
         assert_eq!(
             t.display(&counts(0, 1, 0), 0),
-            Display::Show(SessionState::Waiting, 1)
+            Display::Normal(SessionState::Waiting, 1)
         );
         assert_eq!(
             t.display(&counts(0, 1, 0), 499),
-            Display::Show(SessionState::Waiting, 1)
+            Display::Normal(SessionState::Waiting, 1)
         );
-        assert_eq!(t.display(&counts(0, 1, 0), 500), Display::Blank);
-        assert_eq!(t.display(&counts(0, 1, 0), 999), Display::Blank);
+        assert_eq!(
+            t.display(&counts(0, 1, 0), 500),
+            Display::Inverted(SessionState::Waiting, 1)
+        );
+        assert_eq!(
+            t.display(&counts(0, 1, 0), 999),
+            Display::Inverted(SessionState::Waiting, 1)
+        );
         assert_eq!(
             t.display(&counts(0, 1, 0), 1_000),
-            Display::Show(SessionState::Waiting, 1)
+            Display::Normal(SessionState::Waiting, 1)
         );
     }
 }

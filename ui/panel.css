@@ -100,3 +100,12 @@
     color: rgba(242, 242, 242, 0.6);
     padding: 6px 2px;
 }
+
+/* Daemon-liveness indicator (02_design.md §3.9): distinct from
+   .ccs-empty on purpose — "no sessions" and "not being monitored at all"
+   must not look the same. */
+.ccs-daemon-down {
+    color: #f5c211;
+    font-weight: bold;
+    padding: 6px 2px;
+}

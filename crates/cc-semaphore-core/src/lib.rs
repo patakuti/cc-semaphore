@@ -6,6 +6,7 @@
 
 pub mod colors;
 pub mod format;
+pub mod heartbeat;
 pub mod paths;
 pub mod proc;
 pub mod snapshot;

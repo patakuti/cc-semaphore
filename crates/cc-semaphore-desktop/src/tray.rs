@@ -1,7 +1,8 @@
 //! Wires the Windows system tray (02_design.md §6): icon rasterization +
 //! caching (icon.rs) driven by the rotation/blink state machine
 //! (tray_state.rs), the always-current tooltip, the right-click menu
-//! (Show panel / Quit), and the left-click popup.
+//! (Show panel / Quit), the left-click popup, and the daemon-liveness
+//! indicator (02_design.md §3.9).
 //!
 //! ## Platform note
 //!
@@ -13,16 +14,17 @@
 //! icon and serves the right-click menu, which is enough to sanity-check
 //! rendering on this dev machine (docs/measurements.md).
 
-use crate::icon::{IconCache, ICON_SIZE};
+use crate::icon::{IconCache, IconPhase, ICON_SIZE};
 use crate::tray_state::{Display, TrayState};
 use cc_semaphore_core::StateCounts;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
-use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, Rect};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Rect};
 
 const TICK_MS: u64 = 500;
 
@@ -30,13 +32,15 @@ struct Shared {
     state: TrayState,
     counts: StateCounts,
     icons: IconCache,
+    daemon_alive: bool,
 }
 
 /// Holds everything `on_snapshot` needs to update the tray from outside
-/// this module, stashed as Tauri managed state.
+/// this module, stashed as Tauri managed state. The `TrayIcon` itself
+/// isn't here: it's only ever driven from the tick thread in `setup()`,
+/// which owns its own clone.
 struct TrayHandle {
     shared: Arc<Mutex<Shared>>,
-    tray: TrayIcon,
 }
 
 fn now_ms() -> i64 {
@@ -46,11 +50,15 @@ fn now_ms() -> i64 {
         .as_millis() as i64
 }
 
-fn tooltip(counts: &StateCounts) -> String {
-    format!(
-        "running:{} waiting:{} idle:{}",
-        counts.running, counts.waiting, counts.idle
-    )
+fn tooltip(daemon_alive: bool, counts: &StateCounts) -> String {
+    if daemon_alive {
+        format!(
+            "running:{} waiting:{} idle:{}",
+            counts.running, counts.waiting, counts.idle
+        )
+    } else {
+        "cc-semaphore: daemon not running".to_string()
+    }
 }
 
 fn to_image(rgba: Vec<u8>) -> Image<'static> {
@@ -61,31 +69,44 @@ fn to_image(rgba: Vec<u8>) -> Image<'static> {
 /// exists on disk (if any) so the tray's baseline doesn't depend on the
 /// webview loading or the watcher firing — the tray must work even if the
 /// user never opens a window.
-pub fn setup(app: &AppHandle, initial_counts: StateCounts) -> tauri::Result<()> {
+pub fn setup(
+    app: &AppHandle,
+    state_path: PathBuf,
+    initial_counts: StateCounts,
+) -> tauri::Result<()> {
     let show_panel = MenuItem::with_id(app, "show-panel", "Show panel", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show_panel, &quit])?;
 
     let mut state = TrayState::new();
     state.on_counts(initial_counts.clone(), now_ms());
+    let initial_alive = cc_semaphore_core::heartbeat::daemon_alive(&state_path);
     let shared = Arc::new(Mutex::new(Shared {
         state,
         counts: initial_counts.clone(),
         icons: IconCache::new(),
+        daemon_alive: initial_alive,
     }));
 
     let initial_icon = {
         let mut s = shared.lock().expect("tray state mutex");
-        let rgba = s.icons.get(
-            initial_counts.running,
-            cc_semaphore_core::SessionState::Running,
-        );
-        to_image(rgba.clone())
+        let rgba = if initial_alive {
+            s.icons
+                .get(
+                    initial_counts.running,
+                    cc_semaphore_core::SessionState::Running,
+                    IconPhase::Normal,
+                )
+                .clone()
+        } else {
+            s.icons.offline().clone()
+        };
+        to_image(rgba)
     };
 
     let tray = TrayIconBuilder::with_id("cc-semaphore-tray")
         .icon(initial_icon)
-        .tooltip(tooltip(&initial_counts))
+        .tooltip(tooltip(initial_alive, &initial_counts))
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -108,40 +129,59 @@ pub fn setup(app: &AppHandle, initial_counts: StateCounts) -> tauri::Result<()> 
 
     app.manage(TrayHandle {
         shared: Arc::clone(&shared),
-        tray: tray.clone(),
     });
 
+    let app_handle = app.clone();
     thread::spawn(move || loop {
         thread::sleep(Duration::from_millis(TICK_MS));
         let now = now_ms();
-        let rgba = {
+        let alive = cc_semaphore_core::heartbeat::daemon_alive(&state_path);
+        let (rgba, tip, alive_changed) = {
             let mut s = shared.lock().expect("tray state mutex");
+            let alive_changed = alive != s.daemon_alive;
+            s.daemon_alive = alive;
             s.state.expire(now);
             let counts = s.counts.clone();
-            match s.state.display(&counts, now) {
-                Display::Blank => s.icons.blank(),
-                Display::Show(state, value) => s.icons.get(value, state).clone(),
-            }
+            let rgba = if !alive {
+                s.icons.offline().clone()
+            } else {
+                match s.state.display(&counts, now) {
+                    Display::Normal(state, value) => {
+                        s.icons.get(value, state, IconPhase::Normal).clone()
+                    }
+                    Display::Inverted(state, value) => {
+                        s.icons.get(value, state, IconPhase::Inverted).clone()
+                    }
+                }
+            };
+            (rgba, tooltip(alive, &counts), alive_changed)
         };
         let _ = tray.set_icon(Some(to_image(rgba)));
+        let _ = tray.set_tooltip(Some(tip));
+        if alive_changed {
+            let _ = app_handle.emit("daemon-status", DaemonStatus { alive });
+        }
     });
 
     Ok(())
 }
 
+#[derive(serde::Serialize, Clone)]
+struct DaemonStatus {
+    alive: bool,
+}
+
 /// Feeds a freshly read snapshot's counts into the tray's blink state
-/// machine and refreshes the always-current tooltip. Call this from the
-/// same place `main.rs` emits the "snapshot" event to the windows.
+/// machine. Call this from the same place `main.rs` emits the "snapshot"
+/// event to the windows; the icon/tooltip themselves are refreshed by the
+/// tick thread started in `setup()`, not from here.
 pub fn on_snapshot(app: &AppHandle, counts: &StateCounts) {
     let Some(handle) = app.try_state::<TrayHandle>() else {
         return;
     };
-    {
-        let mut s = handle.shared.lock().expect("tray state mutex");
-        s.counts = counts.clone();
-        s.state.on_counts(counts.clone(), now_ms());
-    }
-    let _ = handle.tray.set_tooltip(Some(tooltip(counts)));
+    let mut s = handle.shared.lock().expect("tray state mutex");
+    s.counts = counts.clone();
+    s.state.on_counts(counts.clone(), now_ms());
 }
 
 fn toggle_main_window(app: &AppHandle) {
