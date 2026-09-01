@@ -25,6 +25,16 @@
     opacity: 0;
 }
 
+.ccs-daemon-down {
+    font-weight: bold;
+    padding: 0 4px;
+    color: #f5c211;
+}
+
+.ccs-popup-daemon-down {
+    color: #f5c211;
+}
+
 .ccs-popup-dot {
     font-weight: bold;
     padding-right: 6px;
