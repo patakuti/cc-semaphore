@@ -24,7 +24,8 @@
   ウィンドウ / Windowsシステムトレイ(トレイ数字のラスタライズ・割り込み点滅・
   右クリックメニュー・クリックポップアップ、いずれも実装済み)
 - `extensions/cc-semaphore@patakuti/` — GNOME Shell 46 拡張
-  (トップバーに状態別カウント表示、クリックでセッション一覧ポップアップ)
+  (トップバーに状態別カウント表示、クリックでセッション一覧ポップアップ、
+  daemon生死表示)
 - `ui/` — GNOME拡張以外のフロントエンドが共有する静的UIアセット
   (ビルド不要。npm/Node.jsは使用しない)。`demo.html` をブラウザで開けば
   `python3 -m http.server -d ui` でスタンドアロン確認できる
@@ -59,6 +60,10 @@ ln -sfn "$(pwd)/extensions/cc-semaphore@patakuti" \
 gnome-extensions enable cc-semaphore@patakuti
 ```
 
+daemonが動作していない(heartbeatが15秒以上更新されていない)ときは、
+トップバーのカウント表示が`⚠`単独表示に切り替わり、ポップアップメニューにも
+「daemon停止中」の旨が表示される(Tauri版と同じ`heartbeat.json`を参照)。
+
 ## Always-on-top透過ウィンドウの起動(開発用)
 
 ```sh
@@ -79,6 +84,7 @@ Tauriに読み込ませている。透過ウィンドウ(パネル)は既定で�
 AppIndicator拡張が有効な環境)で、GNOME拡張のパネル表示・ポップアップ、
 透過ウィンドウの透過・最前面固定・実データ表示、トレイアイコンの描画・
 ローテーション・右クリックメニュー・daemon生死表示まで動作確認済み。
+daemon生死表示はGNOME拡張側にも反映済み(このUbuntu機で実機確認済み)。
 ユーザーによるWindows実機での動作確認も完了しており、そこで得たフィードバック
 (トレイ数字のサイズ・点滅の見た目・赤文字の視認性・パネル既定非表示・
 daemon生死表示)はすべて反映済み。ツールチップとクリックポップアップは
