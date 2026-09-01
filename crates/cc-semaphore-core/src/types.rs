@@ -24,7 +24,7 @@ pub struct SessionRecord {
 }
 
 /// The three states cc-semaphore distinguishes. See 01_requirements.md §3.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SessionState {
     Running,
