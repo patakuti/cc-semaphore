@@ -1,5 +1,8 @@
 //! Persists the window's position and size across restarts, per
-//! 02_design.md §7.2 (`~/.config/cc-semaphore/window.json`).
+//! 02_design.md §7.2 (`~/.config/cc-semaphore/window.json` on Linux,
+//! `%APPDATA%\cc-semaphore\window.json` on Windows — Windows doesn't set
+//! `HOME` by default, so unlike the rest of this crate's path resolution,
+//! this one needs its own platform branch rather than relying on it).
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -13,6 +16,13 @@ struct Geometry {
     height: u32,
 }
 
+#[cfg(target_os = "windows")]
+fn path() -> PathBuf {
+    let app_data = std::env::var_os("APPDATA").expect("APPDATA must be set on Windows");
+    PathBuf::from(app_data).join("cc-semaphore/window.json")
+}
+
+#[cfg(not(target_os = "windows"))]
 fn path() -> PathBuf {
     let home = std::env::var_os("HOME").expect("HOME must be set");
     PathBuf::from(home).join(".config/cc-semaphore/window.json")

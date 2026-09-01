@@ -19,9 +19,13 @@ pub fn spawn(state_path: PathBuf) -> Receiver<()> {
         .parent()
         .expect("state path always has a parent directory")
         .to_path_buf();
+    let file_name = state_path
+        .file_name()
+        .expect("state path always has a file name")
+        .to_owned();
 
     thread::spawn(move || loop {
-        match watch_once(&watch_dir, &tx) {
+        match watch_once(&watch_dir, &file_name, &tx) {
             Ok(()) => return, // receiver dropped, nobody's listening
             Err(e) => {
                 eprintln!(
@@ -37,7 +41,11 @@ pub fn spawn(state_path: PathBuf) -> Receiver<()> {
 }
 
 #[cfg(target_os = "linux")]
-fn watch_once(watch_dir: &std::path::Path, tx: &mpsc::Sender<()>) -> std::io::Result<()> {
+fn watch_once(
+    watch_dir: &std::path::Path,
+    file_name: &std::ffi::OsStr,
+    tx: &mpsc::Sender<()>,
+) -> std::io::Result<()> {
     use inotify::{Inotify, WatchMask};
 
     // The daemon creates this directory lazily on its first write; wait
@@ -57,7 +65,11 @@ fn watch_once(watch_dir: &std::path::Path, tx: &mpsc::Sender<()>) -> std::io::Re
     let mut buffer = [0; 4096];
     loop {
         let events = inotify.read_events_blocking(&mut buffer)?;
-        if events.count() > 0 && tx.send(()).is_err() {
+        // The same directory also receives heartbeat.json churn on every
+        // daemon tick (cc_semaphore_core::heartbeat); only state.json
+        // itself changing should wake this watcher.
+        let relevant = events.filter(|e| e.name == Some(file_name)).count() > 0;
+        if relevant && tx.send(()).is_err() {
             return Ok(());
         }
     }

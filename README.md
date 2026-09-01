@@ -21,7 +21,8 @@
 - `crates/cc-semaphore-daemon` — 常駐デーモン `cc-semaphored`
   (inotify監視 / WSL1ポーリング / スナップショット書き出し / CLI)
 - `crates/cc-semaphore-desktop` — Tauri v2 による Always-on-top 透過
-  ウィンドウ(実装済み) / Windowsシステムトレイ(Phase 6で追加予定)
+  ウィンドウ / Windowsシステムトレイ(トレイ数字のラスタライズ・割り込み点滅・
+  右クリックメニュー・クリックポップアップ、いずれも実装済み)
 - `extensions/cc-semaphore@patakuti/` — GNOME Shell 46 拡張
   (トップバーに状態別カウント表示、クリックでセッション一覧ポップアップ)
 - `ui/` — GNOME拡張以外のフロントエンドが共有する静的UIアセット
@@ -66,15 +67,28 @@ cargo run -p cc-semaphore-desktop
 ```
 
 npm・Node.jsは使わない。`ui/` の静的アセットをそのまま `frontendDist` として
-Tauriに読み込ませている。
+Tauriに読み込ませている。透過ウィンドウ(パネル)は既定で非表示。トレイの
+右クリックメニュー「Show panel」で表示をトグルする。daemonが動作していない
+(heartbeatが15秒以上更新されていない)ときは、トレイがグレーの`?`アイコンに
+なり、パネルには「⚠ daemon not running」と表示される。
 
 ## 開発状況
 
-設計・計画フェーズ完了。実装は Phase 5(Always-on-top透過ウィンドウ)まで
-完了し、**Ubuntu環境で実用可能な状態**になった。実機(GNOME Shell 46 / X11)で
-GNOME拡張のパネル表示・ポップアップ、および透過ウィンドウの透過・最前面固定
-・実データ表示のいずれも動作確認済み。Windows+WSL1側の実測(Phase 0-C)も
-2台の実機WSL1機で完了しており、daemonはUbuntu機でmuslクロスビルドした
-静的バイナリをそのままWSL1に配布できることを確認済み。次はPhase 6〜7
-(Windowsシステムトレイ・仕上げ、いずれもWindows側でビルド)。
+設計・計画フェーズ完了。実装は Phase 6(Windowsシステムトレイ)まで完了し、
+**Ubuntu環境で実用可能な状態**になった。実機(GNOME Shell 46 / X11、
+AppIndicator拡張が有効な環境)で、GNOME拡張のパネル表示・ポップアップ、
+透過ウィンドウの透過・最前面固定・実データ表示、トレイアイコンの描画・
+ローテーション・右クリックメニュー・daemon生死表示まで動作確認済み。
+ユーザーによるWindows実機での動作確認も完了しており、そこで得たフィードバック
+(トレイ数字のサイズ・点滅の見た目・赤文字の視認性・パネル既定非表示・
+daemon生死表示)はすべて反映済み。ツールチップとクリックポップアップは
+Tauri本体の仕様によりLinuxでは検証不能なため、この2点のみ引き続きWindows
+実機での最終確認が必要。
+
+Windows+WSL1側の実測(Phase 0-C)は2台の実機WSL1機で完了しており、daemonは
+Ubuntu機でmuslクロスビルドした静的バイナリをそのままWSL1に配布できることを
+確認済み。`cc-semaphore-desktop` のWindows向けビルドは
+GitHub Actions(`.github/workflows/windows-build.yml`、PRのpush毎+手動実行)
+で行い、実機ユーザーはビルド成果物(.exe)をartifactからダウンロードする。
+次はPhase 7(WSL1側の自動起動・パッケージング・仕上げ)。
 詳細は開発時のみ手元に置く設計・計画ドキュメント(Git管理外)を参照。
