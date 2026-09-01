@@ -15,6 +15,14 @@ const BLINK_DURATION_MS = 30000;
 const FALLBACK_POLL_SECS = 30;
 const MENU_REDRAW_SECS = 1;
 
+// Must match cc_semaphore_core::heartbeat::STALE_AFTER_MS (02_design.md §3.9).
+const STALE_AFTER_MS = 15000;
+// Independent of FALLBACK_POLL_SECS: state.json isn't rewritten when nothing
+// changed, so heartbeat staleness must be checked on its own cadence rather
+// than piggybacking on the FileMonitor/fallback-poll refresh. 5s matches the
+// native Linux daemon's own scan tick, giving 3x margin under the threshold.
+const HEARTBEAT_POLL_SECS = 5;
+
 // See 02_design.md §2.1: same resolution the daemon uses for the local
 // snapshot target.
 function statePath() {
@@ -22,6 +30,12 @@ function statePath() {
     if (runtimeDir)
         return GLib.build_filenamev([runtimeDir, 'cc-semaphore', 'state.json']);
     return GLib.build_filenamev([GLib.get_home_dir(), '.cache', 'cc-semaphore', 'state.json']);
+}
+
+// See 02_design.md §3.9: sibling of state.json, rewritten unconditionally by
+// the daemon on every scan tick regardless of content.
+function heartbeatPath() {
+    return GLib.build_filenamev([GLib.path_get_dirname(statePath()), 'heartbeat.json']);
 }
 
 function readSnapshot() {
@@ -33,6 +47,20 @@ function readSnapshot() {
         return JSON.parse(new TextDecoder('utf-8').decode(contents));
     } catch (e) {
         return null;
+    }
+}
+
+// Mirrors cc_semaphore_core::heartbeat::daemon_alive: fresh mtime on
+// heartbeat.json means the daemon is alive; missing/unreadable means dead.
+function daemonAlive() {
+    try {
+        const file = Gio.File.new_for_path(heartbeatPath());
+        const info = file.query_info('time::modified', Gio.FileQueryInfoFlags.NONE, null);
+        const mtimeMs = info.get_attribute_uint64('time::modified') * 1000;
+        const nowMs = GLib.get_real_time() / 1000;
+        return nowMs - mtimeMs < STALE_AFTER_MS;
+    } catch (e) {
+        return false;
     }
 }
 
@@ -127,17 +155,26 @@ class Indicator extends PanelMenu.Button {
             y_align: Clutter.ActorAlign.CENTER,
             style_class: 'ccs-count ccs-idle',
         });
+        this._daemonDownLabel = new St.Label({
+            y_align: Clutter.ActorAlign.CENTER,
+            style_class: 'ccs-daemon-down',
+            text: '⚠',
+            visible: false,
+        });
         box.add_child(this._runningLabel);
         box.add_child(this._waitingLabel);
         box.add_child(this._idleLabel);
+        box.add_child(this._daemonDownLabel);
         this.add_child(box);
 
         this._sessionSection = new PopupMenu.PopupMenuSection();
         this.menu.addMenuItem(this._sessionSection);
 
         this._lastSnapshot = null;
+        this._daemonAlive = true;
         this._fileMonitor = null;
         this._pollTimerId = null;
+        this._heartbeatTimerId = null;
         this._menuTimerId = null;
         this._blink = new BlinkController((kind, visible) => this._applyBlink(kind, visible));
 
@@ -169,6 +206,14 @@ class Indicator extends PanelMenu.Button {
                 this._refresh();
                 return GLib.SOURCE_CONTINUE;
             });
+        // Independent daemon-liveness tick per 02_design.md §3.9: state.json
+        // doesn't change (so the FileMonitor above stays silent) merely
+        // because the daemon died, so staleness needs its own poll.
+        this._heartbeatTimerId = GLib.timeout_add_seconds(
+            GLib.PRIORITY_DEFAULT, HEARTBEAT_POLL_SECS, () => {
+                this._refresh();
+                return GLib.SOURCE_CONTINUE;
+            });
     }
 
     _startMenuTimer() {
@@ -190,6 +235,7 @@ class Indicator extends PanelMenu.Button {
 
     _refresh() {
         this._lastSnapshot = readSnapshot();
+        this._daemonAlive = daemonAlive();
         this._renderPanel();
         // Always keep the menu populated, not just while open: PopupMenu's
         // open() refuses to open an empty menu (isEmpty() guard), so if we
@@ -201,6 +247,17 @@ class Indicator extends PanelMenu.Button {
     }
 
     _renderPanel() {
+        if (!this._daemonAlive) {
+            this._runningLabel.hide();
+            this._waitingLabel.hide();
+            this._idleLabel.hide();
+            this._daemonDownLabel.show();
+            return;
+        }
+        this._daemonDownLabel.hide();
+        this._runningLabel.show();
+        this._waitingLabel.show();
+        this._idleLabel.show();
         const counts = this._lastSnapshot?.counts ?? null;
         this._setCount(this._runningLabel, counts?.running);
         this._setCount(this._waitingLabel, counts?.waiting);
@@ -225,6 +282,12 @@ class Indicator extends PanelMenu.Button {
 
     _renderMenu() {
         this._sessionSection.removeAll();
+        if (!this._daemonAlive) {
+            const item = new PopupMenu.PopupMenuItem('⚠ daemon not running', {reactive: false});
+            item.add_style_class_name('ccs-popup-daemon-down');
+            this._sessionSection.addMenuItem(item);
+            return;
+        }
         const sessions = this._lastSnapshot?.sessions ?? [];
         if (sessions.length === 0) {
             const item = new PopupMenu.PopupMenuItem('No Claude Code sessions', {reactive: false});
@@ -262,6 +325,10 @@ class Indicator extends PanelMenu.Button {
         if (this._pollTimerId) {
             GLib.source_remove(this._pollTimerId);
             this._pollTimerId = null;
+        }
+        if (this._heartbeatTimerId) {
+            GLib.source_remove(this._heartbeatTimerId);
+            this._heartbeatTimerId = null;
         }
         this._stopMenuTimer();
         super.destroy();
