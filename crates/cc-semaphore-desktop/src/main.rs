@@ -67,10 +67,16 @@ fn get_snapshot() -> Option<SnapshotEvent> {
     })
 }
 
-fn read_counts(state_path: &std::path::Path) -> cc_semaphore_core::StateCounts {
-    read_snapshot(state_path)
-        .map(|s| s.counts)
-        .unwrap_or_default()
+fn read_counts_and_sessions(
+    state_path: &std::path::Path,
+) -> (
+    cc_semaphore_core::StateCounts,
+    Vec<cc_semaphore_core::SessionEntry>,
+) {
+    match read_snapshot(state_path) {
+        Some(s) => (s.counts, s.sessions),
+        None => (cc_semaphore_core::StateCounts::default(), Vec::new()),
+    }
 }
 
 fn main() {
@@ -105,7 +111,13 @@ fn main() {
             }
 
             let state_path = cc_semaphore_core::local_state_path();
-            tray::setup(app.handle(), state_path.clone(), read_counts(&state_path))?;
+            let (initial_counts, initial_sessions) = read_counts_and_sessions(&state_path);
+            tray::setup(
+                app.handle(),
+                state_path.clone(),
+                initial_counts,
+                initial_sessions,
+            )?;
 
             let home_dir = std::env::var("HOME").ok();
             let rx = watcher::spawn(state_path.clone());
@@ -118,7 +130,7 @@ fn main() {
                 // reports.
                 while rx.recv().is_ok() {
                     if let Some(snapshot) = read_snapshot(&state_path) {
-                        tray::on_snapshot(&app_handle, &snapshot.counts);
+                        tray::on_snapshot(&app_handle, &snapshot.counts, &snapshot.sessions);
                         let daemon_alive = cc_semaphore_core::heartbeat::daemon_alive(&state_path);
                         let _ = app_handle.emit(
                             "snapshot",
