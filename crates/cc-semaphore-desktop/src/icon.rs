@@ -73,6 +73,7 @@ pub enum IconPhase {
 pub struct IconCache {
     cache: HashMap<(u8, SessionState, IconPhase), IconRgba>,
     offline: Option<IconRgba>,
+    empty: Option<IconRgba>,
 }
 
 impl IconCache {
@@ -100,6 +101,18 @@ impl IconCache {
     pub fn offline(&mut self) -> &IconRgba {
         self.offline
             .get_or_insert_with(|| render_square("?", (128, 128, 128), (255, 255, 255)))
+    }
+
+    /// Shown when every state's count is zero (02_design.md §6.3): a
+    /// neutral gray circle with no digit knocked out — unlike `offline`,
+    /// this keeps the usual circle shape (nothing's actually wrong, there's
+    /// just nothing to report), and unlike `Normal`/`Inverted` it isn't
+    /// colored like any particular state, since no state is what's "zero"
+    /// here. Empty text means `glyph_coverage` never marks any pixel, so
+    /// `fg` is passed but never actually used.
+    pub fn empty(&mut self) -> &IconRgba {
+        self.empty
+            .get_or_insert_with(|| render_circle("", (128, 128, 128), (128, 128, 128)))
     }
 }
 
@@ -331,5 +344,33 @@ mod tests {
         let a = cache.offline().clone();
         let b = cache.offline().clone();
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn empty_icon_is_cached_across_calls() {
+        let mut cache = IconCache::new();
+        let a = cache.empty().clone();
+        let b = cache.empty().clone();
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn empty_icon_is_a_gray_circle_with_no_digit() {
+        let mut cache = IconCache::new();
+        let rgba = cache.empty().clone();
+        let pixel = |x: u32, y: u32| {
+            let i = ((y * ICON_SIZE + x) * 4) as usize;
+            (rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3])
+        };
+        assert_eq!(
+            pixel(0, 0),
+            (128, 128, 128, 0),
+            "corner is outside the circle: transparent"
+        );
+        assert_eq!(
+            pixel(ICON_SIZE / 2, ICON_SIZE / 2),
+            (128, 128, 128, 255),
+            "center is inside the circle: opaque gray, no digit knocked out"
+        );
     }
 }

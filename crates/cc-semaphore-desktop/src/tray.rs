@@ -92,13 +92,15 @@ pub fn setup(
     let initial_icon = {
         let mut s = shared.lock().expect("tray state mutex");
         let rgba = if initial_alive {
-            s.icons
-                .get(
-                    initial_counts.running,
-                    cc_semaphore_core::SessionState::Running,
-                    IconPhase::Normal,
-                )
-                .clone()
+            match s.state.display(&initial_counts, now_ms()) {
+                Display::Normal(state, value) => {
+                    s.icons.get(value, state, IconPhase::Normal).clone()
+                }
+                Display::Inverted(state, value) => {
+                    s.icons.get(value, state, IconPhase::Inverted).clone()
+                }
+                Display::Empty => s.icons.empty().clone(),
+            }
         } else {
             s.icons.offline().clone()
         };
@@ -152,6 +154,7 @@ pub fn setup(
                     Display::Inverted(state, value) => {
                         s.icons.get(value, state, IconPhase::Inverted).clone()
                     }
+                    Display::Empty => s.icons.empty().clone(),
                 }
             };
             (rgba, tooltip(alive, &counts), alive_changed)
