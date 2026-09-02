@@ -16,7 +16,7 @@
 
 use crate::icon::{IconCache, IconPhase, ICON_SIZE};
 use crate::tray_state::{Display, TrayState};
-use cc_semaphore_core::StateCounts;
+use cc_semaphore_core::{SessionEntry, StateCounts};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -65,21 +65,22 @@ fn to_image(rgba: Vec<u8>) -> Image<'static> {
     Image::new_owned(rgba, ICON_SIZE, ICON_SIZE)
 }
 
-/// `initial_counts` is read synchronously from whatever snapshot already
-/// exists on disk (if any) so the tray's baseline doesn't depend on the
-/// webview loading or the watcher firing — the tray must work even if the
-/// user never opens a window.
+/// `initial_counts`/`initial_sessions` are read synchronously from whatever
+/// snapshot already exists on disk (if any) so the tray's baseline doesn't
+/// depend on the webview loading or the watcher firing — the tray must work
+/// even if the user never opens a window.
 pub fn setup(
     app: &AppHandle,
     state_path: PathBuf,
     initial_counts: StateCounts,
+    initial_sessions: Vec<SessionEntry>,
 ) -> tauri::Result<()> {
     let show_panel = MenuItem::with_id(app, "show-panel", "Show panel", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show_panel, &quit])?;
 
     let mut state = TrayState::new();
-    state.on_counts(initial_counts.clone(), now_ms());
+    state.on_snapshot(initial_sessions);
     let initial_alive = cc_semaphore_core::heartbeat::daemon_alive(&state_path);
     let shared = Arc::new(Mutex::new(Shared {
         state,
@@ -140,7 +141,6 @@ pub fn setup(
             let mut s = shared.lock().expect("tray state mutex");
             let alive_changed = alive != s.daemon_alive;
             s.daemon_alive = alive;
-            s.state.expire(now);
             let counts = s.counts.clone();
             let rgba = if !alive {
                 s.icons.offline().clone()
@@ -171,17 +171,17 @@ struct DaemonStatus {
     alive: bool,
 }
 
-/// Feeds a freshly read snapshot's counts into the tray's blink state
-/// machine. Call this from the same place `main.rs` emits the "snapshot"
-/// event to the windows; the icon/tooltip themselves are refreshed by the
-/// tick thread started in `setup()`, not from here.
-pub fn on_snapshot(app: &AppHandle, counts: &StateCounts) {
+/// Feeds a freshly read snapshot's counts and sessions into the tray's
+/// blink state machine. Call this from the same place `main.rs` emits the
+/// "snapshot" event to the windows; the icon/tooltip themselves are
+/// refreshed by the tick thread started in `setup()`, not from here.
+pub fn on_snapshot(app: &AppHandle, counts: &StateCounts, sessions: &[SessionEntry]) {
     let Some(handle) = app.try_state::<TrayHandle>() else {
         return;
     };
     let mut s = handle.shared.lock().expect("tray state mutex");
     s.counts = counts.clone();
-    s.state.on_counts(counts.clone(), now_ms());
+    s.state.on_snapshot(sessions.to_vec());
 }
 
 fn toggle_main_window(app: &AppHandle) {

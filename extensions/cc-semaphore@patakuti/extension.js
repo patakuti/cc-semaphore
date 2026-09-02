@@ -11,9 +11,12 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 // Must match 02_design.md §10.
 const BLINK_INTERVAL_MS = 500;
-const BLINK_DURATION_MS = 30000;
 const FALLBACK_POLL_SECS = 30;
 const MENU_REDRAW_SECS = 1;
+
+// How long a session stays "recent" (blink-worthy) after its `since`.
+// Mirrors tray_state.rs's ALERT_WINDOW_MS exactly (02_design.md §6.3).
+const ALERT_WINDOW_MS = 30000;
 
 // Must match cc_semaphore_core::heartbeat::STALE_AFTER_MS (02_design.md §3.9).
 const STALE_AFTER_MS = 15000;
@@ -79,62 +82,30 @@ function shortenHome(cwd) {
     return cwd.startsWith(home) ? `~${cwd.slice(home.length)}` : cwd;
 }
 
-// Implements the interrupt-blink state machine from 02_design.md §6.3
-// (shared spec with the Windows tray). `onUpdate(kind, visible)` is called
-// whenever the blinking display state changes; `kind` is 'waiting', 'idle',
-// or null when back to steady rotation.
-class BlinkController {
-    constructor(onUpdate) {
-        this._onUpdate = onUpdate;
-        this._prevCounts = null;
-        this._activeKind = null;
-        this._deadlineMs = 0;
-        this._timerId = null;
-    }
+// Whether any session in `sessions` is in `state` and entered it within
+// ALERT_WINDOW_MS of `now`. Deliberately holds no alert-episode state of its
+// own (no fired-at timestamps, no baselines): recomputed fresh from each
+// session's own `since` every call. Mirrors tray_state.rs's `has_recent`
+// exactly — see that module's doc comment for why this design (rather than
+// tracking count deltas) correctly handles every edge case found in
+// 02_design.md §6.3's revision history.
+function hasRecent(sessions, state, now) {
+    return sessions.some(s => s.state === state && now - s.since < ALERT_WINDOW_MS);
+}
 
-    // Feeds a new `counts` reading. The very first call only establishes a
-    // baseline and never triggers a blink (avoids a false alarm on startup).
-    update(counts) {
-        if (this._prevCounts) {
-            // idle first, waiting second: if both increase in the same
-            // update, waiting (processed last) wins, per §6.3.
-            for (const kind of ['idle', 'waiting']) {
-                if (counts[kind] > this._prevCounts[kind])
-                    this._fire(kind);
-            }
-        }
-        this._prevCounts = counts;
-    }
-
-    _fire(kind) {
-        this._activeKind = kind;
-        this._deadlineMs = GLib.get_monotonic_time() / 1000 + BLINK_DURATION_MS;
-        this._ensureTimer();
-    }
-
-    _ensureTimer() {
-        if (this._timerId)
-            return;
-        let visible = true;
-        this._timerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, BLINK_INTERVAL_MS, () => {
-            if (GLib.get_monotonic_time() / 1000 >= this._deadlineMs) {
-                this._activeKind = null;
-                this._timerId = null;
-                this._onUpdate(null, true);
-                return GLib.SOURCE_REMOVE;
-            }
-            visible = !visible;
-            this._onUpdate(this._activeKind, visible);
-            return GLib.SOURCE_CONTINUE;
-        });
-    }
-
-    destroy() {
-        if (this._timerId) {
-            GLib.source_remove(this._timerId);
-            this._timerId = null;
-        }
-    }
+// What the panel should show right now: `{kind, visible}`, where `kind` is
+// 'waiting', 'idle', or null for steady rotation (no blink), and `visible`
+// is the current blink phase (always true when `kind` is null).
+function blinkDisplay(sessions, now) {
+    // waiting takes priority over idle when both have a recent session,
+    // per 02_design.md §6.3.
+    let kind = null;
+    if (hasRecent(sessions, 'waiting', now))
+        kind = 'waiting';
+    else if (hasRecent(sessions, 'idle', now))
+        kind = 'idle';
+    const visible = kind === null || now % (BLINK_INTERVAL_MS * 2) < BLINK_INTERVAL_MS;
+    return {kind, visible};
 }
 
 const Indicator = GObject.registerClass(
@@ -176,7 +147,7 @@ class Indicator extends PanelMenu.Button {
         this._pollTimerId = null;
         this._heartbeatTimerId = null;
         this._menuTimerId = null;
-        this._blink = new BlinkController((kind, visible) => this._applyBlink(kind, visible));
+        this._blinkTimerId = null;
 
         this.menu.connect('open-state-changed', (_menu, open) => {
             if (open) {
@@ -188,7 +159,21 @@ class Indicator extends PanelMenu.Button {
         });
 
         this._startWatching();
+        this._startBlinking();
         this._refresh();
+    }
+
+    // Runs for the indicator's entire lifetime (unlike the file-monitor and
+    // heartbeat timers, this doesn't need to react to any particular event
+    // — it just recomputes the blink display fresh from the latest snapshot
+    // on every tick).
+    _startBlinking() {
+        this._blinkTimerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, BLINK_INTERVAL_MS, () => {
+            const sessions = this._lastSnapshot?.sessions ?? [];
+            const {kind, visible} = blinkDisplay(sessions, Date.now());
+            this._applyBlink(kind, visible);
+            return GLib.SOURCE_CONTINUE;
+        });
     }
 
     _startWatching() {
@@ -242,8 +227,6 @@ class Indicator extends PanelMenu.Button {
         // only filled it in on 'open-state-changed', the menu would never
         // have content when the user first clicks and could never open.
         this._renderMenu();
-        if (this._lastSnapshot)
-            this._blink.update(this._lastSnapshot.counts);
     }
 
     _renderPanel() {
@@ -266,18 +249,22 @@ class Indicator extends PanelMenu.Button {
 
     _setCount(label, value) {
         label.text = value === undefined ? '-' : `${value}`;
-        label.remove_style_class_name('ccs-zero');
-        if (value === 0)
-            label.add_style_class_name('ccs-zero');
+        // Clutter's `opacity` actor property directly, not a CSS class
+        // (`ccs-zero`, now removed): see _applyBlink's comment — St's theme
+        // engine doesn't reliably recompute opacity from style-class
+        // toggling in this environment.
+        label.opacity = value === 0 ? 90 : 255; // 0.35 * 255, matching the old CSS value
     }
 
     _applyBlink(kind, visible) {
+        // Set Clutter's `opacity` actor property directly rather than
+        // toggling a CSS class (`ccs-blink-hidden`, now removed): the
+        // latter reliably updated `style_class` but St's theme engine never
+        // actually recomputed the rendered opacity from it in testing, so
+        // the class was toggling with no visible effect.
         const labels = {waiting: this._waitingLabel, idle: this._idleLabel};
-        for (const [k, label] of Object.entries(labels)) {
-            label.remove_style_class_name('ccs-blink-hidden');
-            if (kind === k && !visible)
-                label.add_style_class_name('ccs-blink-hidden');
-        }
+        for (const [k, label] of Object.entries(labels))
+            label.opacity = kind === k && !visible ? 0 : 255;
     }
 
     _renderMenu() {
@@ -317,7 +304,10 @@ class Indicator extends PanelMenu.Button {
     }
 
     destroy() {
-        this._blink.destroy();
+        if (this._blinkTimerId) {
+            GLib.source_remove(this._blinkTimerId);
+            this._blinkTimerId = null;
+        }
         if (this._fileMonitor) {
             this._fileMonitor.cancel();
             this._fileMonitor = null;
