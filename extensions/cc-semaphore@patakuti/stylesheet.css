@@ -17,14 +17,6 @@
     color: #e01b24;
 }
 
-.ccs-zero {
-    opacity: 0.35;
-}
-
-.ccs-blink-hidden {
-    opacity: 0;
-}
-
 .ccs-daemon-down {
     font-weight: bold;
     padding: 0 4px;

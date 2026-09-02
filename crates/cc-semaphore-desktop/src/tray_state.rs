@@ -1,29 +1,34 @@
 //! The tray icon's rotation/interrupt-blink state machine (02_design.md
-//! §6.3). A pure state machine that takes the current time as an explicit
-//! argument rather than owning a timer, so it can be tested without any
-//! real waiting (03_plan.md Phase 6: "先にテストを書いてから実装する").
+//! §6.3). Deliberately holds no alert-episode bookkeeping of its own
+//! (no fired-at timestamps, no baselines): whether to blink, which kind,
+//! and for how long is recomputed fresh on every call from each session's
+//! own `since` (when it entered its current state) against the current
+//! time. A session counts as "recent" — and therefore blink-worthy — for
+//! `ALERT_WINDOW_MS` after its `since`; past that it's just part of the
+//! steady rotation like any other. This one predicate, evaluated per
+//! session, replaces what used to be a hand-rolled fire/extend/expire
+//! state machine over aggregate counts, and fixes every edge case that
+//! design ran into (02_design.md §6.3 revision history for the full story):
+//! a session that blips into waiting/idle and immediately back out is
+//! simply no longer in `sessions` for that state, so it stops blinking
+//! right away; a session that was *already* idle before a second one joins
+//! it correctly keeps blinking based on the second (recent) one even after
+//! the first (stale) one leaves, in either direction (state change or the
+//! session ending outright — both just remove it from `sessions`).
 //!
-//! The owner (tray.rs) is expected to call `on_counts()` whenever a new
-//! snapshot arrives, and `display()` (after `expire()`) on every tick of
-//! its own timer to decide what the icon should currently show.
+//! Testable without any real waiting: `display()` takes the current time as
+//! an explicit argument (03_plan.md Phase 6: "先にテストを書いてから実装する").
+//!
+//! The owner (tray.rs) is expected to call `on_snapshot()` whenever a new
+//! snapshot arrives, and `display()` on every tick of its own timer to
+//! decide what the icon should currently show.
 
-use cc_semaphore_core::{SessionState, StateCounts};
+use cc_semaphore_core::{SessionEntry, SessionState, StateCounts};
 
 pub const ROTATE_INTERVAL_MS: i64 = 2_000;
 pub const BLINK_INTERVAL_MS: i64 = 500;
-pub const ALERT_DURATION_MS: i64 = 30_000;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AlertKind {
-    Waiting,
-    Idle,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Mode {
-    Rotate,
-    Alert { kind: AlertKind, deadline_ms: i64 },
-}
+/// How long a session stays "recent" (blink-worthy) after its `since`.
+pub const ALERT_WINDOW_MS: i64 = 30_000;
 
 /// What the icon should show right now. Rotation always shows `Normal`;
 /// an active alert blinks between `Normal` and `Inverted` every
@@ -37,79 +42,59 @@ pub enum Display {
 }
 
 pub struct TrayState {
-    prev_counts: Option<StateCounts>,
-    mode: Mode,
+    sessions: Vec<SessionEntry>,
 }
 
 impl TrayState {
     pub fn new() -> Self {
         TrayState {
-            prev_counts: None,
-            mode: Mode::Rotate,
+            sessions: Vec::new(),
         }
     }
 
-    /// Feeds a newly observed `counts`. The very first call only
-    /// establishes a baseline and never fires an alert, so a fresh app
-    /// launch doesn't blink over sessions that already existed
-    /// (02_design.md §6.3, "起動直後の誤爆防止").
-    pub fn on_counts(&mut self, counts: StateCounts, now_ms: i64) {
-        if let Some(prev) = self.prev_counts.clone() {
-            // idle checked before waiting: if both increase in the same
-            // snapshot, waiting (checked/fired last) wins, per §6.3.
-            if counts.idle > prev.idle {
-                self.fire(AlertKind::Idle, now_ms);
-            }
-            if counts.waiting > prev.waiting {
-                self.fire(AlertKind::Waiting, now_ms);
-            }
-        }
-        self.prev_counts = Some(counts);
+    /// Feeds a freshly observed session list. No diffing against the
+    /// previous snapshot is needed — see the module doc comment.
+    pub fn on_snapshot(&mut self, sessions: Vec<SessionEntry>) {
+        self.sessions = sessions;
     }
 
-    /// Firing always sets a fresh 30s deadline for `kind`, regardless of
-    /// whether an alert was already active: extending the same kind and
-    /// switching to a different kind both reduce to "adopt this kind, timer
-    /// resets to now+30s" (02_design.md §6.3).
-    fn fire(&mut self, kind: AlertKind, now_ms: i64) {
-        self.mode = Mode::Alert {
-            kind,
-            deadline_ms: now_ms + ALERT_DURATION_MS,
-        };
-    }
-
-    /// Reverts an expired alert back to rotation. Must be called with the
-    /// current time before `display()` for that to reflect expiry.
-    pub fn expire(&mut self, now_ms: i64) {
-        if let Mode::Alert { deadline_ms, .. } = self.mode {
-            if now_ms >= deadline_ms {
-                self.mode = Mode::Rotate;
-            }
-        }
+    /// Whether any session in `state` entered it within `ALERT_WINDOW_MS`
+    /// of `now_ms`.
+    fn has_recent(&self, state: SessionState, now_ms: i64) -> bool {
+        self.sessions
+            .iter()
+            .any(|s| s.state == state && now_ms - s.since < ALERT_WINDOW_MS)
     }
 
     /// What to show right now, given the latest `counts` (for the digit
-    /// value) and the current time (for rotation phase / blink phase).
+    /// value) and the current time (for which mode is active / rotation
+    /// phase / blink phase).
     pub fn display(&self, counts: &StateCounts, now_ms: i64) -> Display {
-        match self.mode {
-            Mode::Rotate => {
-                let phase = now_ms.rem_euclid(ROTATE_INTERVAL_MS * 3) / ROTATE_INTERVAL_MS;
-                match phase {
-                    0 => Display::Normal(SessionState::Running, counts.running),
-                    1 => Display::Normal(SessionState::Waiting, counts.waiting),
-                    _ => Display::Normal(SessionState::Idle, counts.idle),
-                }
-            }
-            Mode::Alert { kind, .. } => {
-                let (state, value) = match kind {
-                    AlertKind::Waiting => (SessionState::Waiting, counts.waiting),
-                    AlertKind::Idle => (SessionState::Idle, counts.idle),
-                };
+        // waiting takes priority over idle when both have a recent session
+        // (02_design.md §6.3).
+        let alert = if self.has_recent(SessionState::Waiting, now_ms) {
+            Some((SessionState::Waiting, counts.waiting))
+        } else if self.has_recent(SessionState::Idle, now_ms) {
+            Some((SessionState::Idle, counts.idle))
+        } else {
+            None
+        };
+
+        match alert {
+            Some((state, value)) => {
                 let visible = now_ms.rem_euclid(BLINK_INTERVAL_MS * 2) < BLINK_INTERVAL_MS;
                 if visible {
                     Display::Normal(state, value)
                 } else {
                     Display::Inverted(state, value)
+                }
+            }
+            None => {
+                let phase = now_ms.rem_euclid(ROTATE_INTERVAL_MS * 3) / ROTATE_INTERVAL_MS;
+                match phase {
+                    0 => Display::Normal(SessionState::Running, counts.running),
+                    1 => Display::Normal(SessionState::Waiting, counts.waiting),
+                    _ => Display::Normal(SessionState::Idle, counts.idle),
                 }
             }
         }
@@ -134,18 +119,33 @@ mod tests {
         }
     }
 
-    #[test]
-    fn first_snapshot_is_a_baseline_and_never_alerts() {
-        let mut t = TrayState::new();
-        t.on_counts(counts(0, 3, 3), 0);
-        assert_eq!(t.mode, Mode::Rotate);
+    fn session(state: SessionState, since: i64) -> SessionEntry {
+        SessionEntry {
+            id: None,
+            pid: 1,
+            name: None,
+            cwd: "/".to_string(),
+            state,
+            raw_status: "x".to_string(),
+            waiting_for: None,
+            since,
+            started_at: since,
+        }
     }
 
     #[test]
-    fn waiting_increase_fires_an_alert() {
+    fn no_sessions_rotates() {
+        let t = TrayState::new();
+        assert_eq!(
+            t.display(&counts(1, 0, 0), 0),
+            Display::Normal(SessionState::Running, 1)
+        );
+    }
+
+    #[test]
+    fn a_freshly_waiting_session_blinks() {
         let mut t = TrayState::new();
-        t.on_counts(counts(1, 0, 0), 0);
-        t.on_counts(counts(1, 1, 0), 1_000);
+        t.on_snapshot(vec![session(SessionState::Waiting, 1_000)]);
         assert_eq!(
             t.display(&counts(1, 1, 0), 1_000),
             Display::Normal(SessionState::Waiting, 1)
@@ -153,10 +153,9 @@ mod tests {
     }
 
     #[test]
-    fn idle_increase_fires_an_alert() {
+    fn a_freshly_idle_session_blinks() {
         let mut t = TrayState::new();
-        t.on_counts(counts(1, 0, 0), 0);
-        t.on_counts(counts(1, 0, 1), 1_000);
+        t.on_snapshot(vec![session(SessionState::Idle, 1_000)]);
         assert_eq!(
             t.display(&counts(1, 0, 1), 1_000),
             Display::Normal(SessionState::Idle, 1)
@@ -164,18 +163,22 @@ mod tests {
     }
 
     #[test]
-    fn running_increase_does_not_fire() {
+    fn a_running_session_never_blinks() {
         let mut t = TrayState::new();
-        t.on_counts(counts(1, 0, 0), 0);
-        t.on_counts(counts(2, 0, 0), 1_000);
-        assert_eq!(t.mode, Mode::Rotate);
+        t.on_snapshot(vec![session(SessionState::Running, 1_000)]);
+        assert_eq!(
+            t.display(&counts(1, 0, 0), 1_000),
+            Display::Normal(SessionState::Running, 1)
+        );
     }
 
     #[test]
-    fn simultaneous_waiting_and_idle_increase_prefers_waiting() {
+    fn simultaneous_waiting_and_idle_prefers_waiting() {
         let mut t = TrayState::new();
-        t.on_counts(counts(0, 0, 0), 0);
-        t.on_counts(counts(0, 1, 1), 1_000);
+        t.on_snapshot(vec![
+            session(SessionState::Idle, 1_000),
+            session(SessionState::Waiting, 1_000),
+        ]);
         assert_eq!(
             t.display(&counts(0, 1, 1), 1_000),
             Display::Normal(SessionState::Waiting, 1)
@@ -183,46 +186,78 @@ mod tests {
     }
 
     #[test]
-    fn same_kind_increase_extends_the_deadline() {
+    fn a_resolved_session_no_longer_blinks() {
+        // The original bug: a session blips into idle and immediately back
+        // to running. It's simply not idle in the next snapshot anymore, so
+        // there's nothing left to blink about — well before ALERT_WINDOW_MS.
         let mut t = TrayState::new();
-        t.on_counts(counts(0, 0, 0), 0);
-        t.on_counts(counts(0, 1, 0), 1_000); // deadline would be 31_000
-        t.on_counts(counts(0, 2, 0), 20_000); // extends to 50_000
-        t.expire(31_000); // the original deadline: must NOT have expired
+        t.on_snapshot(vec![session(SessionState::Idle, 1_000)]);
+        t.on_snapshot(vec![session(SessionState::Running, 1_000)]);
         assert_eq!(
-            t.display(&counts(0, 2, 0), 31_000),
-            Display::Normal(SessionState::Waiting, 2),
-            "extension should keep the alert active past the original deadline"
+            t.display(&counts(1, 0, 0), 1_500),
+            Display::Normal(SessionState::Running, 1)
         );
     }
 
     #[test]
-    fn different_kind_increase_switches_over() {
+    fn a_second_session_in_the_same_state_still_blinks_once_the_first_resolves() {
+        // The "1->2->1" case: idle already had a standing session (A) when
+        // a second one (B) joined it. Once A resolves back to running, B
+        // (still idle, and recent) correctly keeps the alert going.
         let mut t = TrayState::new();
-        t.on_counts(counts(0, 0, 0), 0);
-        t.on_counts(counts(0, 0, 1), 1_000); // idle alert, deadline 31_000
-        t.on_counts(counts(0, 1, 1), 2_000); // waiting increases -> switch over
+        let a = session(SessionState::Idle, 0);
+        let b = session(SessionState::Idle, 1_000);
+        t.on_snapshot(vec![a.clone(), b.clone()]);
+        // A resolves; B is untouched.
+        t.on_snapshot(vec![b]);
         assert_eq!(
-            t.display(&counts(0, 1, 1), 2_000),
-            Display::Normal(SessionState::Waiting, 1)
+            t.display(&counts(1, 0, 1), 1_000),
+            Display::Normal(SessionState::Idle, 1)
         );
     }
 
     #[test]
-    fn alert_reverts_to_rotation_after_its_deadline() {
+    fn an_unrelated_session_ending_does_not_silence_a_still_recent_one() {
+        // The follow-up case: instead of A *resolving* (state change), A's
+        // session just ends outright (its process exits, so it drops out of
+        // `sessions` entirely — see snapshot.rs's `is_alive` filter). B is
+        // still idle and recent, so the alert must not fall silent.
         let mut t = TrayState::new();
-        t.on_counts(counts(1, 0, 0), 0);
-        t.on_counts(counts(1, 1, 0), 1_000); // deadline 31_000
-        t.expire(30_999);
+        let a = session(SessionState::Idle, 0);
+        let b = session(SessionState::Idle, 1_000);
+        t.on_snapshot(vec![a, b.clone()]);
+        t.on_snapshot(vec![b]); // A's process ended; it's gone, not just changed
         assert_eq!(
-            t.mode,
-            Mode::Alert {
-                kind: AlertKind::Waiting,
-                deadline_ms: 31_000
-            }
+            t.display(&counts(1, 0, 1), 1_000),
+            Display::Normal(SessionState::Idle, 1)
         );
-        t.expire(31_000);
-        assert_eq!(t.mode, Mode::Rotate);
+    }
+
+    #[test]
+    fn a_stale_session_alone_does_not_blink() {
+        let mut t = TrayState::new();
+        t.on_snapshot(vec![session(SessionState::Idle, 0)]);
+        assert_eq!(
+            t.display(&counts(1, 0, 1), ALERT_WINDOW_MS),
+            Display::Normal(SessionState::Running, 1),
+            "a session idle for exactly ALERT_WINDOW_MS is no longer recent"
+        );
+    }
+
+    #[test]
+    fn a_persistently_idle_session_stops_blinking_after_the_window_even_if_still_idle() {
+        let mut t = TrayState::new();
+        t.on_snapshot(vec![session(SessionState::Idle, 0)]);
+        assert_eq!(
+            t.display(&counts(1, 0, 1), ALERT_WINDOW_MS - 1_000),
+            Display::Normal(SessionState::Idle, 1),
+            "still within the window, and in the blink's visible phase"
+        );
+        assert_eq!(
+            t.display(&counts(1, 0, 1), ALERT_WINDOW_MS),
+            Display::Normal(SessionState::Running, 1),
+            "past the window: back to steady rotation even though still idle"
+        );
     }
 
     #[test]
@@ -248,8 +283,7 @@ mod tests {
     #[test]
     fn alert_blinks_at_500ms_cadence() {
         let mut t = TrayState::new();
-        t.on_counts(counts(0, 0, 0), 0);
-        t.on_counts(counts(0, 1, 0), 0);
+        t.on_snapshot(vec![session(SessionState::Waiting, 0)]);
         assert_eq!(
             t.display(&counts(0, 1, 0), 0),
             Display::Normal(SessionState::Waiting, 1)
