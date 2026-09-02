@@ -249,11 +249,6 @@ class Indicator extends PanelMenu.Button {
 
     _setCount(label, value) {
         label.text = value === undefined ? '-' : `${value}`;
-        // Clutter's `opacity` actor property directly, not a CSS class
-        // (`ccs-zero`, now removed): see _applyBlink's comment — St's theme
-        // engine doesn't reliably recompute opacity from style-class
-        // toggling in this environment.
-        label.opacity = value === 0 ? 90 : 255; // 0.35 * 255, matching the old CSS value
     }
 
     _applyBlink(kind, visible) {
