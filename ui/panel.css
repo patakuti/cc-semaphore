@@ -31,9 +31,16 @@
    the leak is a WebKitGTK compositing artifact, not a sizing bug) and by
    the leak disappearing the moment backdrop-filter was removed. Whether
    WebView2 (Windows) has the same issue is unconfirmed, but a flat
-   semi-transparent fill was chosen over risking the same bleed there. */
+   semi-transparent fill was chosen over risking the same bleed there.
+
+   --ccs-card-alpha (default 0.1, i.e. 90% transparent per user request
+   2026-09-03) is set on <html> by app.js, which also lets the user step
+   it with [/] while the panel is expanded (§7.2) and persists the last
+   value in the webview's own localStorage. The count circles below are
+   deliberately NOT part of this — they stay fully opaque regardless, so
+   the numbers stay legible no matter how transparent the card gets. */
 .ccs-window .ccs-card {
-    background: rgba(0, 0, 0, 0.55);
+    background: rgba(0, 0, 0, var(--ccs-card-alpha, 0.1));
     padding: 10px 12px;
     min-width: 320px;
 }
@@ -94,6 +101,42 @@
 
 .ccs-count.ccs-idle {
     color: #e01b24;
+}
+
+/* Always-on-top window only (02_design.md §7.2, user request 2026-09-03):
+   the number sits inside a solid, fully-opaque circle — deliberately
+   independent of --ccs-card-alpha above, so the count stays legible no
+   matter how transparent the surrounding card is turned. min-width +
+   pill-shaped radius (rather than a fixed circle) so a 3-digit count
+   still fits instead of overflowing its badge. box-sizing: border-box is
+   required for a 1-digit badge to actually come out circular — without
+   it the padding adds on top of min-width instead of being absorbed by
+   it, so a single digit rendered as a 34x22 oval, not a 22x22 circle
+   (user-reported 2026-09-03). The tray's click popup (.ccs-popup) keeps
+   the plain colored-text style above; it already has an opaque card, so
+   a badge would add nothing there. */
+.ccs-window .ccs-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    min-width: 22px;
+    height: 22px;
+    padding: 0 6px;
+    border-radius: 999px;
+    color: #fff;
+}
+
+.ccs-window .ccs-count.ccs-running {
+    background: #2ec27e;
+}
+
+.ccs-window .ccs-count.ccs-waiting {
+    background: #f5c211;
+}
+
+.ccs-window .ccs-count.ccs-idle {
+    background: #e01b24;
 }
 
 .ccs-row {
