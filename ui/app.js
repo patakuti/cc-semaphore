@@ -44,3 +44,19 @@ render(); // initial paint of the empty state, before any data arrives
 
 window.ccSemaphoreUpdate = updateSnapshot;
 window.ccSemaphoreSetDaemonStatus = setDaemonAlive;
+
+// Collapse/expand (02_design.md §7.2, 2026-09-03): only the always-on-top
+// window (.ccs-window) has this — the tray's click popup (.ccs-popup)
+// already required a click to open, so it always shows the full session
+// list. Collapsed is the default: this window sits on top of everything,
+// so it should stay out of the way until asked for detail. This is a
+// webview-local toggle, independent of the window's own show/hide (driven
+// from the Rust side via the tray menu) — the window isn't recreated on
+// hide/show, so this state simply persists across that for free.
+const countsEl = document.getElementById('counts');
+if (countsEl && document.body.classList.contains('ccs-window')) {
+    document.body.classList.add('ccs-collapsed');
+    countsEl.addEventListener('click', () => {
+        document.body.classList.toggle('ccs-collapsed');
+    });
+}
