@@ -8,21 +8,40 @@
     color: #f2f2f2;
 }
 
-/* Always-on-top transparent window (02_design.md §7.2). */
-.ccs-window {
-    background: rgba(0, 0, 0, 0.55);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    padding: 10px 12px;
+/* The visual "card" box that actually carries content, deliberately kept
+   separate from <body> itself: per the CSS spec, a background painted
+   directly on <body> (or <html>) propagates to paint the whole
+   window/canvas, not just <body>'s own (content-sized) box — so once the
+   always-on-top window could collapse to just its counts row (app.js),
+   <body>'s box shrank but the window's actual OS-level size didn't, and
+   the propagated background kept filling all of it, leaving a large
+   translucent area below the counts with nothing in it (02_design.md
+   §7.2, user-reported 2026-09-03). Scoping the background to this
+   shrink-wrapped child instead keeps the visible box sized to its real
+   content, in both states. */
+.ccs-card {
     border-radius: 8px;
     min-width: 320px;
 }
 
+/* Always-on-top transparent window (02_design.md §7.2). Deliberately no
+   backdrop-filter/blur: measured live on this Ubuntu machine (GNOME 46,
+   WebKitGTK) that blur() bleeds past .ccs-card's own box and darkens the
+   *entire* OS window, including the empty area below a collapsed card —
+   confirmed via getComputedStyle (card height genuinely shrinks to fit;
+   the leak is a WebKitGTK compositing artifact, not a sizing bug) and by
+   the leak disappearing the moment backdrop-filter was removed. Whether
+   WebView2 (Windows) has the same issue is unconfirmed, but a flat
+   semi-transparent fill was chosen over risking the same bleed there. */
+.ccs-window .ccs-card {
+    background: rgba(0, 0, 0, 0.55);
+    padding: 10px 12px;
+}
+
 /* Tray click popup: opaque, no blur (matches the host OS's own popups). */
-.ccs-popup {
+.ccs-popup .ccs-card {
     background: #1e1e1e;
     padding: 8px 10px;
-    min-width: 320px;
 }
 
 .ccs-drag-handle {
