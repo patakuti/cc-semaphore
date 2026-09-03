@@ -80,8 +80,11 @@ export function renderPanel(snapshot, rootEl, opts = {}) {
         rootEl.appendChild(el('div', 'ccs-empty', 'No Claude Code sessions'));
         return;
     }
-    // Sessions arrive pre-sorted by the backend (02_design.md §2.4) and
-    // must not be re-sorted here.
+    // This module never sorts — it renders `snapshot.sessions` in
+    // whatever order it's given. Sessions arrive pre-sorted by the
+    // backend (02_design.md §2.4); the always-on-top window's app.js is
+    // the one exception, reordering its own copy before calling in here
+    // (§7.2) — that reorder belongs to the caller, not this module.
     for (const session of sessions)
         rootEl.appendChild(renderRow(session, homeDir, now));
 }

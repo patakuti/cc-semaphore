@@ -17,10 +17,26 @@ function render() {
     const sessionsEl = document.getElementById('sessions');
     const countsEl = document.getElementById('counts');
     if (sessionsEl)
-        renderPanel(latestSnapshot, sessionsEl, {homeDir, now: Date.now(), daemonAlive});
+        renderPanel(sessionsForList(latestSnapshot), sessionsEl, {homeDir, now: Date.now(), daemonAlive});
     if (countsEl && latestSnapshot)
         renderCounts(latestSnapshot.counts, countsEl, {daemonAlive});
     fitWindowToCard();
+}
+
+// Always-on-top window only (02_design.md §7.2, user request 2026-09-03):
+// its expanded list orders sessions by ascending elapsed-in-state (most
+// recently changed on top), ignoring the waiting→idle→running priority
+// grouping the backend otherwise guarantees (02_design.md §2.4). That
+// backend order — and the "frontend must not re-sort" invariant — still
+// holds everywhere else (popup.html's tray click popup, GNOME extension);
+// this reorder is local to this one frontend's own display and never
+// touches the snapshot the backend produced or panel.js's own rendering
+// (which still just renders whatever array it's handed, unsorted).
+function sessionsForList(snapshot) {
+    if (!snapshot || !document.body.classList.contains('ccs-window'))
+        return snapshot;
+    const sessions = [...snapshot.sessions].sort((a, b) => b.since - a.since);
+    return {...snapshot, sessions};
 }
 
 // Always-on-top window only (02_design.md §7.2, 2026-09-03): resizes the
@@ -89,6 +105,43 @@ if (countsEl && document.body.classList.contains('ccs-window')) {
     countsEl.addEventListener('click', () => {
         document.body.classList.toggle('ccs-collapsed');
         fitWindowToCard();
+    });
+}
+
+// Card background transparency (02_design.md §7.2, user request
+// 2026-09-03): the count circles above are always fully opaque, but the
+// rest of the card defaults to 90% transparent (--ccs-card-alpha: 0.1 in
+// panel.css) and can be stepped with [ (more transparent) / ] (more
+// opaque) while the panel is expanded — collapsed is just a glance-only
+// counts row, not something to tune. Persisted in this webview's own
+// localStorage (survives app restarts; Tauri gives each app a persistent
+// per-app webview data directory) rather than plumbed through a Rust
+// command, since the value is only ever read and written from here.
+const CARD_ALPHA_KEY = 'ccs-card-alpha';
+const CARD_ALPHA_DEFAULT = 0.1;
+const CARD_ALPHA_STEP = 0.05;
+
+function loadCardAlpha() {
+    const stored = parseFloat(localStorage.getItem(CARD_ALPHA_KEY));
+    return Number.isFinite(stored) ? Math.min(1, Math.max(0, stored)) : CARD_ALPHA_DEFAULT;
+}
+
+function applyCardAlpha(alpha) {
+    document.documentElement.style.setProperty('--ccs-card-alpha', alpha.toFixed(2));
+}
+
+if (document.body.classList.contains('ccs-window')) {
+    applyCardAlpha(loadCardAlpha());
+    document.addEventListener('keydown', (event) => {
+        if (document.body.classList.contains('ccs-collapsed'))
+            return;
+        if (event.key !== '[' && event.key !== ']')
+            return;
+        event.preventDefault();
+        const delta = event.key === ']' ? CARD_ALPHA_STEP : -CARD_ALPHA_STEP;
+        const next = Math.min(1, Math.max(0, loadCardAlpha() + delta));
+        applyCardAlpha(next);
+        localStorage.setItem(CARD_ALPHA_KEY, next.toFixed(2));
     });
 }
 
