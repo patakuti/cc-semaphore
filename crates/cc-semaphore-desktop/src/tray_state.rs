@@ -34,11 +34,13 @@ pub const ALERT_WINDOW_MS: i64 = 30_000;
 /// an active alert blinks between `Normal` and `Inverted` every
 /// `BLINK_INTERVAL_MS` (icon.rs renders `Inverted` as a solid block with
 /// the digit knocked out, never as a blank icon — see icon.rs's doc
-/// comment for why).
+/// comment for why). `Empty` is rotation's own zero-state: no state has a
+/// nonzero count, so there's nothing worth cycling through.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Display {
     Normal(SessionState, u32),
     Inverted(SessionState, u32),
+    Empty,
 }
 
 pub struct TrayState {
@@ -90,11 +92,30 @@ impl TrayState {
                 }
             }
             None => {
-                let phase = now_ms.rem_euclid(ROTATE_INTERVAL_MS * 3) / ROTATE_INTERVAL_MS;
-                match phase {
-                    0 => Display::Normal(SessionState::Running, counts.running),
-                    1 => Display::Normal(SessionState::Waiting, counts.waiting),
-                    _ => Display::Normal(SessionState::Idle, counts.idle),
+                // Only states with something to show are worth cycling
+                // through (user feedback: rotating past a "0" is wasted
+                // time). If nothing has a nonzero count, there's nothing to
+                // rotate — Empty renders as a neutral gray circle rather
+                // than a specific state's color with a "0" in it, which
+                // would misleadingly suggest that state is what's zero
+                // (02_design.md §6.3).
+                let rotation: Vec<(SessionState, u32)> = [
+                    (SessionState::Running, counts.running),
+                    (SessionState::Waiting, counts.waiting),
+                    (SessionState::Idle, counts.idle),
+                ]
+                .into_iter()
+                .filter(|(_, value)| *value > 0)
+                .collect();
+
+                match rotation.len() {
+                    0 => Display::Empty,
+                    n => {
+                        let phase =
+                            now_ms.rem_euclid(ROTATE_INTERVAL_MS * n as i64) / ROTATE_INTERVAL_MS;
+                        let (state, value) = rotation[phase as usize];
+                        Display::Normal(state, value)
+                    }
                 }
             }
         }
@@ -237,8 +258,11 @@ mod tests {
     fn a_stale_session_alone_does_not_blink() {
         let mut t = TrayState::new();
         t.on_snapshot(vec![session(SessionState::Idle, 0)]);
+        // All three counts nonzero so the rotation's cycle length (and
+        // therefore its phase at ALERT_WINDOW_MS) is unaffected by the
+        // zero-skipping behavior under test elsewhere.
         assert_eq!(
-            t.display(&counts(1, 0, 1), ALERT_WINDOW_MS),
+            t.display(&counts(1, 1, 1), ALERT_WINDOW_MS),
             Display::Normal(SessionState::Running, 1),
             "a session idle for exactly ALERT_WINDOW_MS is no longer recent"
         );
@@ -249,12 +273,12 @@ mod tests {
         let mut t = TrayState::new();
         t.on_snapshot(vec![session(SessionState::Idle, 0)]);
         assert_eq!(
-            t.display(&counts(1, 0, 1), ALERT_WINDOW_MS - 1_000),
+            t.display(&counts(1, 1, 1), ALERT_WINDOW_MS - 1_000),
             Display::Normal(SessionState::Idle, 1),
             "still within the window, and in the blink's visible phase"
         );
         assert_eq!(
-            t.display(&counts(1, 0, 1), ALERT_WINDOW_MS),
+            t.display(&counts(1, 1, 1), ALERT_WINDOW_MS),
             Display::Normal(SessionState::Running, 1),
             "past the window: back to steady rotation even though still idle"
         );
@@ -278,6 +302,40 @@ mod tests {
             t.display(&c, 6_000),
             Display::Normal(SessionState::Running, 1)
         );
+    }
+
+    #[test]
+    fn rotation_skips_states_with_a_zero_count() {
+        let t = TrayState::new();
+        // Only waiting is nonzero: it should show constantly, never cycling
+        // through running or idle's "0".
+        let c = counts(0, 2, 0);
+        assert_eq!(t.display(&c, 0), Display::Normal(SessionState::Waiting, 2));
+        assert_eq!(
+            t.display(&c, 5_000),
+            Display::Normal(SessionState::Waiting, 2)
+        );
+    }
+
+    #[test]
+    fn rotation_cycles_only_the_nonzero_states() {
+        let t = TrayState::new();
+        // waiting is 0 and should be skipped; running/idle alternate every
+        // 2s, over a 4s cycle instead of the usual 6s.
+        let c = counts(1, 0, 3);
+        assert_eq!(t.display(&c, 0), Display::Normal(SessionState::Running, 1));
+        assert_eq!(t.display(&c, 2_000), Display::Normal(SessionState::Idle, 3));
+        assert_eq!(
+            t.display(&c, 4_000),
+            Display::Normal(SessionState::Running, 1)
+        );
+    }
+
+    #[test]
+    fn all_zero_counts_show_empty_instead_of_rotating() {
+        let t = TrayState::new();
+        assert_eq!(t.display(&counts(0, 0, 0), 0), Display::Empty);
+        assert_eq!(t.display(&counts(0, 0, 0), 12_345), Display::Empty);
     }
 
     #[test]
