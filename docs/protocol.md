@@ -56,6 +56,10 @@ backend (`cc-semaphored`) と frontend (GNOME拡張 / Tauriアプリ) の唯一�
 `waiting` → `idle` → `running` の順。同一状態内では `since` の昇順
 (その状態が長く続いているものが上)。frontend側では並べ替えない。
 
+唯一の例外として、cc-semaphore-desktopのAlways-on-top透過ウィンドウは
+展開時の一覧表示だけ、この順序を無視し経過時間昇順で独自に並べ替える
+(このウィンドウの表示専用のローカルな挙動。詳細は02_design.md §7.2)。
+
 ## 書き込みの原子性
 
 backend は `state.json.tmp` に書いてから `rename()` で置換する。
