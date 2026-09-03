@@ -48,8 +48,25 @@ cc-semaphored install-service  # systemd user unit を書き出す
 ```
 
 `daemon` はスナップショットを `$XDG_RUNTIME_DIR/cc-semaphore/state.json`
-(無ければ `~/.cache/cc-semaphore/state.json`)に書き出す。設定ファイルは
-`~/.config/cc-semaphore/config.json`(任意)。詳細は `docs/protocol.md`。
+(無ければ `~/.cache/cc-semaphore/state.json`)に書き出す。スナップショット
+自体のJSON形式は `docs/protocol.md` を参照。
+
+設定ファイル(`~/.config/cc-semaphore/config.json`、任意・省略可)で
+上書きできるパラメータ:
+
+| キー | 既定値 | 意味 |
+|---|---|---|
+| `includeKinds` | `["interactive"]` | 表示対象とするセッション種別 |
+| `inotifyDebounceMs` | `150` | Linux inotifyイベントのデバウンス |
+| `livenessTickSecs` | `5` | Linuxでのプロセス生存確認の周期 |
+| `wsl1PollIntervalMs` | `1000` | WSL1でのポーリング間隔 |
+| `windowsStateDir` | (自動判定) | WSL1→Windows書き出し先の明示的な上書き |
+
+`cc-semaphore-desktop`(Windows/Tauri側)も同じ`config.json`
+(Windowsは`%APPDATA%\cc-semaphore\config.json`)から`windowsPollIntervalMs`
+(既定`500`、DrvFs越しのmtimeポーリング間隔)だけを読む。上記以外の
+タイミング(UI再描画・トレイのローテーション・点滅・GNOME拡張の保険
+再読込)は意図的な固定値で、設定ファイルでは変更できない。
 
 ## GNOME Shell拡張のインストール(開発用)
 
@@ -68,14 +85,28 @@ daemonが動作していない(heartbeatが15秒以上更新されていない)�
 
 ```sh
 cc-semaphored daemon &      # 別途、常駐デーモンを起動しておく
-cargo run -p cc-semaphore-desktop
+cargo run -p cc-semaphore-desktop           # トレイ経由(既定で非表示)
+cargo run -p cc-semaphore-desktop -- --panel  # 起動直後からパネルを表示
 ```
 
 npm・Node.jsは使わない。`ui/` の静的アセットをそのまま `frontendDist` として
-Tauriに読み込ませている。透過ウィンドウ(パネル)は既定で非表示。トレイの
-右クリックメニュー「Show panel」で表示をトグルする。daemonが動作していない
-(heartbeatが15秒以上更新されていない)ときは、トレイがグレーの`?`アイコンに
-なり、パネルには「⚠ daemon not running」と表示される。
+Tauriに読み込ませている。
+
+透過ウィンドウ(パネル)は既定で非表示。トレイの右クリックメニュー
+「Show panel」で表示をトグルするか、`--panel`オプション付きで起動すると
+トレイ操作なしに起動直後からパネルが開く(トレイ自体は通常通り起動し、
+終了は引き続きトレイメニューの`Quit`から行う)。
+
+パネルは既定で`running/waiting/idle`の3つの数字(丸い不透明バッジ)だけを
+表示し、クリックするとセッション一覧に展開する。展開時の一覧は、
+backendが返す`waiting→idle→running`優先度ではなく**経過時間が短い順**
+(直近で状態が変わったものが上)に並ぶ、このウィンドウ独自の表示順。
+カードの背景は既定で90%透過。展開中に`[`(より透明に)/`]`(より不透明に)
+キーで5%刻みに調整でき、値は次回起動時にも引き継がれる。
+
+daemonが動作していない(heartbeatが15秒以上更新されていない)ときは、
+トレイがグレーの`?`アイコンになり、パネルには「⚠ daemon not running」と
+表示される。
 
 ## 開発状況
 
@@ -96,5 +127,12 @@ Ubuntu機でmuslクロスビルドした静的バイナリをそのままWSL1に
 確認済み。`cc-semaphore-desktop` のWindows向けビルドは
 GitHub Actions(`.github/workflows/windows-build.yml`、PRのpush毎+手動実行)
 で行い、実機ユーザーはビルド成果物(.exe)をartifactからダウンロードする。
-次はPhase 7(WSL1側の自動起動・パッケージング・仕上げ)。
+
+現在はPhase 7(WSL1側の自動起動・パッケージング・仕上げ)に着手中。
+設定パラメータの対応状況の最終確認(§10)と、設計書・実装間の齟齬の
+最終監査は完了し、見つかった齟齬(未実装だった`--reap-stale`の削除、
+廃止済み機能の記述漏れ等)はすべて解消済み。残るはWSL1側の自動起動
+手段、Windows向けインストーラの生成とスタートアップ登録 — いずれも
+実機(WSL1・Windows)での検証が必要なため、確認できる環境が整い次第
+着手する。
 詳細は開発時のみ手元に置く設計・計画ドキュメント(Git管理外)を参照。

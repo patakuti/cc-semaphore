@@ -2,6 +2,7 @@
 // elsewhere.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod config;
 mod geometry;
 mod icon;
 mod tray;
@@ -134,7 +135,7 @@ fn main() {
             )?;
 
             let home_dir = std::env::var("HOME").ok();
-            let rx = watcher::spawn(state_path.clone());
+            let rx = watcher::spawn(state_path.clone(), config::windows_poll_interval_ms());
             let app_handle = app.handle().clone();
             thread::spawn(move || {
                 // The initial state is fetched by the webview itself via
