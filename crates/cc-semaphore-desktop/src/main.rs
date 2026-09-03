@@ -80,9 +80,18 @@ fn read_counts_and_sessions(
 }
 
 fn main() {
+    // `--panel`: show the always-on-top window immediately on launch,
+    // rather than leaving it hidden until "Show panel" from the tray menu
+    // (02_design.md §7.2). The tray icon still starts up as usual — this
+    // is meant for launching the panel outside of the tray flow (a desktop
+    // shortcut/launcher running `cc-semaphore-desktop --panel`), not a
+    // trayless mode, so quitting still works the normal way (tray menu's
+    // "Quit").
+    let show_panel_on_launch = std::env::args().any(|arg| arg == "--panel");
+
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![get_snapshot])
-        .setup(|app| {
+        .setup(move |app| {
             let window = app
                 .get_webview_window("main")
                 .expect("the \"main\" window is declared in tauri.conf.json");
@@ -93,6 +102,11 @@ fn main() {
             // (tray::toggle_main_window). Still restore its last geometry
             // so it opens where the user left it once shown.
             geometry::restore(&window);
+
+            if show_panel_on_launch {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
 
             {
                 let event_window = window.clone();
