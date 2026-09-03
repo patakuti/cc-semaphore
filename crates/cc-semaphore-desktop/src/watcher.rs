@@ -13,7 +13,10 @@ use std::time::Duration;
 const RETRY_DELAY: Duration = Duration::from_secs(5);
 
 #[cfg(target_os = "linux")]
-pub fn spawn(state_path: PathBuf) -> Receiver<()> {
+pub fn spawn(state_path: PathBuf, _poll_interval_ms: u64) -> Receiver<()> {
+    // Linux uses inotify (below), so the poll interval only matters on
+    // the non-Linux (Windows mtime-poll) branch — accepted here too so
+    // main.rs has one call site regardless of target OS.
     let (tx, rx) = mpsc::channel();
     let watch_dir = state_path
         .parent()
@@ -76,7 +79,7 @@ fn watch_once(
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn spawn(state_path: PathBuf) -> Receiver<()> {
+pub fn spawn(state_path: PathBuf, poll_interval_ms: u64) -> Receiver<()> {
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
         let mut last_mtime = None;
@@ -90,7 +93,7 @@ pub fn spawn(state_path: PathBuf) -> Receiver<()> {
                     return;
                 }
             }
-            thread::sleep(Duration::from_millis(500));
+            thread::sleep(Duration::from_millis(poll_interval_ms));
         }
     });
     rx
