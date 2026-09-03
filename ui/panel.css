@@ -36,6 +36,17 @@
     margin-bottom: 6px;
 }
 
+/* Always-on-top window only (02_design.md §7.2): collapsed is the default,
+   showing just the counts row. Clicking it expands to the session list.
+   The tray's click popup (.ccs-popup) never collapses — see app.js. */
+.ccs-window .ccs-counts {
+    cursor: pointer;
+}
+
+.ccs-window.ccs-collapsed #sessions {
+    display: none;
+}
+
 .ccs-count.ccs-running {
     color: #2ec27e;
 }
