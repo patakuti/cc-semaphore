@@ -21,7 +21,6 @@
    content, in both states. */
 .ccs-card {
     border-radius: 8px;
-    min-width: 320px;
 }
 
 /* Always-on-top transparent window (02_design.md §7.2). Deliberately no
@@ -36,12 +35,31 @@
 .ccs-window .ccs-card {
     background: rgba(0, 0, 0, 0.55);
     padding: 10px 12px;
+    min-width: 320px;
+}
+
+/* Collapsed (02_design.md §7.2): shrink-wrap to the counts row's actual
+   width instead of the expanded view's 320px minimum, so app.js can size
+   the OS window itself down to match (2026-09-03, user feedback — the
+   window, not just the card inside it, should shrink). `max-content`,
+   not `fit-content`: fit-content clamps to the *available* width, which
+   is the current (possibly already-too-small, e.g. right after the OS
+   window shrank on a previous toggle) viewport — that clamped the row's
+   own layout and fed app.js an undersized measurement, shrinking the
+   window further on every toggle. max-content always reflects the row's
+   true natural width regardless of the current viewport, so it overflows
+   visibly instead of measuring wrong (harmless: app.js resizes the real
+   window to match right after reading it). */
+.ccs-window.ccs-collapsed .ccs-card {
+    min-width: 0;
+    width: max-content;
 }
 
 /* Tray click popup: opaque, no blur (matches the host OS's own popups). */
 .ccs-popup .ccs-card {
     background: #1e1e1e;
     padding: 8px 10px;
+    min-width: 320px;
 }
 
 .ccs-drag-handle {

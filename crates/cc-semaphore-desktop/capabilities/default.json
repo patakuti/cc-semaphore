@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capabilities for the main and popup windows: both listen for the Rust-emitted \"snapshot\" event and call get_snapshot once on load (02_design.md §7.3); only \"main\" starts a window drag from the data-tauri-drag-region header (§7.2) — the popup has no such region so the permission is harmless to share.",
+  "description": "Capabilities for the main and popup windows: both listen for the Rust-emitted \"snapshot\" event and call get_snapshot once on load (02_design.md §7.3); only \"main\" starts a window drag from the data-tauri-drag-region header (§7.2), and only \"main\" resizes itself to fit its collapsed/expanded content (app.js) — the popup has neither, but sharing the permissions is harmless since it never calls them.",
   "windows": ["main", "popup"],
-  "permissions": ["core:event:default", "core:window:allow-start-dragging"]
+  "permissions": ["core:event:default", "core:window:allow-start-dragging", "core:window:allow-set-size"]
 }

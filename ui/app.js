@@ -20,6 +20,35 @@ function render() {
         renderPanel(latestSnapshot, sessionsEl, {homeDir, now: Date.now(), daemonAlive});
     if (countsEl && latestSnapshot)
         renderCounts(latestSnapshot.counts, countsEl, {daemonAlive});
+    fitWindowToCard();
+}
+
+// Always-on-top window only (02_design.md §7.2, 2026-09-03): resizes the
+// actual OS window — not just the visible card — to match its current
+// content (collapsed counts-only, or expanded with the session list).
+// Without this the window's own footprint stays at whatever size it last
+// was, an invisible dead zone beyond the card that still intercepts
+// clicks/drags meant for whatever's beneath it. Called from render()
+// (i.e. on every real data update, not just on collapse/expand toggles)
+// so this also naturally keeps the expanded view fitted as the session
+// list grows or shrinks. `window.__TAURI__` is absent in demo.html's
+// plain-browser preview, so this is a no-op there.
+//
+// Deliberately NOT called eagerly at script load, before any real
+// snapshot has arrived: measured live that doing so raced the counts
+// row's first paint (still empty at that point) and asked the OS window
+// to fit an empty card — the window then stayed stuck at that padding-only
+// size (~24x40) even once real data and its correct measurement arrived
+// moments later, since GTK/WebKitGTK apparently only auto-fits a
+// newly-shown window's size once, not continuously (02_design.md §7.2).
+function fitWindowToCard() {
+    const tauriWindow = window.__TAURI__?.window;
+    const card = document.querySelector('.ccs-card');
+    if (!tauriWindow || !card || !document.body.classList.contains('ccs-window'))
+        return;
+    const {width, height} = card.getBoundingClientRect();
+    tauriWindow.getCurrentWindow().setSize(
+        new tauriWindow.LogicalSize(Math.ceil(width), Math.ceil(height)));
 }
 
 export function updateSnapshot(snapshot, opts = {}) {
@@ -39,9 +68,6 @@ export function setDaemonAlive(alive) {
     render();
 }
 
-setInterval(render, 1000);
-render(); // initial paint of the empty state, before any data arrives
-
 window.ccSemaphoreUpdate = updateSnapshot;
 window.ccSemaphoreSetDaemonStatus = setDaemonAlive;
 
@@ -53,10 +79,18 @@ window.ccSemaphoreSetDaemonStatus = setDaemonAlive;
 // webview-local toggle, independent of the window's own show/hide (driven
 // from the Rust side via the tray menu) — the window isn't recreated on
 // hide/show, so this state simply persists across that for free.
+//
+// Applied before the first render() call below, so that call's own
+// fitWindowToCard() (triggered from render(), not here) already measures
+// the collapsed layout rather than briefly measuring the expanded one.
 const countsEl = document.getElementById('counts');
 if (countsEl && document.body.classList.contains('ccs-window')) {
     document.body.classList.add('ccs-collapsed');
     countsEl.addEventListener('click', () => {
         document.body.classList.toggle('ccs-collapsed');
+        fitWindowToCard();
     });
 }
+
+setInterval(render, 1000);
+render(); // initial paint of the empty state, before any data arrives
