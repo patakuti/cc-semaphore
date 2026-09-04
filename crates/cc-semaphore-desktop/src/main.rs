@@ -80,6 +80,22 @@ fn read_counts_and_sessions(
     }
 }
 
+/// Registers `tauri-plugin-autostart` on Windows only (01_requirements.md
+/// §5.4) — there is nothing to launch-on-login on Linux, which already has
+/// its own opt-in mechanism (`cc-semaphored install-service`, §3.7).
+#[cfg(target_os = "windows")]
+fn register_autostart_plugin(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+    builder.plugin(tauri_plugin_autostart::init(
+        tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+        None,
+    ))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn register_autostart_plugin(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+    builder
+}
+
 fn main() {
     // `--panel`: show the always-on-top window immediately on launch,
     // rather than leaving it hidden until "Show panel" from the tray menu
@@ -90,12 +106,33 @@ fn main() {
     // "Quit").
     let show_panel_on_launch = std::env::args().any(|arg| arg == "--panel");
 
-    tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![get_snapshot])
+    let builder = register_autostart_plugin(
+        tauri::Builder::default().invoke_handler(tauri::generate_handler![get_snapshot]),
+    );
+
+    builder
         .setup(move |app| {
             let window = app
                 .get_webview_window("main")
                 .expect("the \"main\" window is declared in tauri.conf.json");
+
+            // Registers this exe to launch on Windows login, unconditionally
+            // on every run (idempotent — enable() on an already-enabled
+            // registration is a no-op, not an error). No opt-out toggle:
+            // running the installer is itself the explicit "set this up"
+            // action (01_requirements.md §5.4), and Phase 7's completion
+            // criterion is that monitoring is already running after an OS
+            // boot with no further user action. Linux's equivalent
+            // (`cc-semaphored install-service`) stays an explicit opt-in
+            // command instead — asymmetric on purpose, since installing
+            // this desktop app on Windows already *is* that explicit step.
+            #[cfg(target_os = "windows")]
+            {
+                use tauri_plugin_autostart::ManagerExt;
+                if let Err(e) = app.autolaunch().enable() {
+                    eprintln!("cc-semaphore-desktop: failed to register autostart: {e}");
+                }
+            }
 
             // The panel starts hidden by default (user feedback: it's a
             // detail view, not something to see on every launch) and is
