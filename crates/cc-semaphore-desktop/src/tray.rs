@@ -1,18 +1,19 @@
 //! Wires the Windows system tray (02_design.md §6): icon rasterization +
 //! caching (icon.rs) driven by the rotation/blink state machine
-//! (tray_state.rs), the always-current tooltip, the right-click menu
-//! (Show panel / Quit), the left-click popup, and the daemon-liveness
-//! indicator (02_design.md §3.9).
+//! (tray_state.rs), the always-current tooltip, the menu (Show panel /
+//! Quit, on both left- and right-click), and the daemon-liveness indicator
+//! (02_design.md §3.9).
 //!
-//! ## Platform note
-//!
-//! Tauri's tray backend documents that on Linux, `TrayIconEvent::Click` is
-//! never emitted (right-click still opens the context menu, but left click
-//! does nothing) — confirmed by reading `tauri-2.11.5/src/tray/mod.rs`
-//! rather than assumed. So the popup-on-left-click path here can only be
-//! exercised for real on Windows; on Linux this module still renders the
-//! icon and serves the right-click menu, which is enough to sanity-check
-//! rendering on this dev machine (docs/measurements.md).
+//! There used to also be a separate left-click popup window (`popup.html`)
+//! showing its own copy of the session list. Removed (user feedback,
+//! 2026-09-05): confusing to have two different-looking session lists
+//! (that popup's plain color-coded text vs. the always-on-top panel's
+//! badges/collapse), and it would sometimes appear to show a stale/old
+//! view. Left-click now shows the same menu as right-click instead
+//! (`show_menu_on_left_click(true)`, confirmed against
+//! `tauri-2.11.5/src/tray/mod.rs` — this is actually Tauri's own default,
+//! which this module had previously turned off specifically to make room
+//! for the now-removed popup).
 
 use crate::icon::{IconCache, IconPhase, ICON_SIZE};
 use crate::tray_state::{Display, TrayState};
@@ -23,8 +24,8 @@ use std::thread;
 use std::time::Duration;
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Rect};
+use tauri::tray::TrayIconBuilder;
+use tauri::{AppHandle, Emitter, Manager};
 
 const TICK_MS: u64 = 500;
 
@@ -111,22 +112,11 @@ pub fn setup(
         .icon(initial_icon)
         .tooltip(tooltip(initial_alive, &initial_counts))
         .menu(&menu)
-        .show_menu_on_left_click(false)
+        .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show-panel" => toggle_main_window(app),
             "quit" => app.exit(0),
             _ => {}
-        })
-        .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
-                rect,
-                ..
-            } = event
-            {
-                toggle_popup(tray.app_handle(), &rect);
-            }
         })
         .build(app)?;
 
@@ -197,45 +187,4 @@ fn toggle_main_window(app: &AppHandle) {
         let _ = w.show();
         let _ = w.set_focus();
     }
-}
-
-/// Shows/hides the popup window near the tray icon on left click
-/// (02_design.md §6.4). Only reachable on platforms where Tauri actually
-/// emits `TrayIconEvent::Click` — Windows, per the module doc comment
-/// above.
-fn toggle_popup(app: &AppHandle, tray_rect: &Rect) {
-    let Some(w) = app.get_webview_window("popup") else {
-        return;
-    };
-    if w.is_visible().unwrap_or(false) {
-        let _ = w.hide();
-        return;
-    }
-    position_near_tray(&w, tray_rect);
-    let _ = w.show();
-    let _ = w.set_focus();
-}
-
-/// Places the popup's bottom-left corner near the tray icon's position,
-/// which keeps it on-screen for the common case of a bottom-right tray
-/// (Windows). Exact anchoring depends on real screen/taskbar geometry that
-/// can only be confirmed on Windows hardware (03_plan.md Phase 6).
-fn position_near_tray(window: &tauri::WebviewWindow, tray_rect: &Rect) {
-    let scale = window.scale_factor().unwrap_or(1.0);
-    let tray_pos = tray_rect.position.to_physical::<f64>(scale);
-    let win_size = window.outer_size().unwrap_or(PhysicalSize::new(360, 480));
-    let x = (tray_pos.x - win_size.width as f64).max(0.0) as i32;
-    let y = (tray_pos.y - win_size.height as f64).max(0.0) as i32;
-    let _ = window.set_position(PhysicalPosition::new(x, y));
-}
-
-/// Hides the popup when it loses focus, so clicking elsewhere dismisses it
-/// like a native flyout (02_design.md §6.4).
-pub fn hide_popup_on_focus_lost(window: &tauri::WebviewWindow) {
-    let window = window.clone();
-    window.clone().on_window_event(move |event| {
-        if let tauri::WindowEvent::Focused(false) = event {
-            let _ = window.hide();
-        }
-    });
 }

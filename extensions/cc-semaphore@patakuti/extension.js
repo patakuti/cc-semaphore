@@ -278,8 +278,16 @@ class Indicator extends PanelMenu.Button {
             return;
         }
 
+        // Ascending elapsed-in-state (most recently changed on top),
+        // ignoring the waiting→idle→running priority grouping the backend
+        // itself produces — matches the always-on-top window's identical
+        // override in ui/app.js's sessionsForList() (user request
+        // 2026-09-05: the two session-list UIs should agree). Display-only:
+        // never mutates this._lastSnapshot.
+        const sorted = [...sessions].sort((a, b) => b.since - a.since);
+
         const now = Date.now();
-        for (const s of sessions) {
+        for (const s of sorted) {
             const item = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
             const dot = new St.Label({text: '●', style_class: `ccs-popup-dot ccs-${s.state}`});
             const nameLabel = new St.Label({text: s.name || String(s.pid)});
