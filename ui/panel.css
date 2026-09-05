@@ -1,6 +1,20 @@
 /* Colors must match crates/cc-semaphore-core/src/colors.rs (02_design.md
    §4.1) and extensions/cc-semaphore@patakuti/stylesheet.css. */
 
+/* .ccs-window.ccs-collapsed .ccs-card below deliberately overflows its
+   viewport for one frame (see that rule's comment) before app.js resizes
+   the real OS window to match. On WebKitGTK (Linux) this transient
+   overflow never became visible — its scrollbars are the overlay kind,
+   invisible until actively dragged. WebView2 (Windows) instead renders
+   classic scrollbars with visible arrow buttons the instant content
+   overflows, which showed up around the collapsed badges as stray arrow
+   glyphs (user-reported 2026-09-05, Windows). `overflow: hidden` on
+   <html> makes the always-on-top window match what Linux already looked
+   like, regardless of which engine is rendering it. */
+html {
+    overflow: hidden;
+}
+
 .ccs-body {
     margin: 0;
     font-family: -apple-system, "Segoe UI", "Cantarell", sans-serif;
