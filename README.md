@@ -46,6 +46,7 @@ cc-semaphored watch                   # 端末にライブ表示(1秒ごとに�
 cc-semaphored daemon                  # 常駐開始
 cc-semaphored install-service         # (ネイティブLinux) systemd user unit を書き出す
 cc-semaphored install-wsl1-autostart  # (WSL1) ~/.bashrcに自動起動フックを追加する
+cc-semaphored install-wsl1-autostart --print  # 追加せず、内容を表示するだけ
 ```
 
 `daemon` はスナップショットを `$XDG_RUNTIME_DIR/cc-semaphore/state.json`
@@ -56,7 +57,9 @@ cc-semaphored install-wsl1-autostart  # (WSL1) ~/.bashrcに自動起動フック
 systemd user unitを導入すればログイン後は自動で動く。WSL1にはsystemdも
 「OS起動」に相当するものも無いため、`install-wsl1-autostart`で
 `~/.bashrc`にフックを追加する — 以降、シェルを開くたびに起動を試み、
-既に動いていれば(ロックファイルにより)何もしない。
+既に動いていれば(ロックファイルにより)何もしない。`~/.bashrc`を
+自動編集されたくない場合は`--print`を付けると、ファイルには触れず
+追記すべき内容を表示するだけになる(`.zshrc`等への貼り付けも自分で行う)。
 
 設定ファイル(`~/.config/cc-semaphore/config.json`、任意・省略可)で
 上書きできるパラメータ:

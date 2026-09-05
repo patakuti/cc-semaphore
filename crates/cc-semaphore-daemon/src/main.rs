@@ -28,7 +28,12 @@ fn main() {
             }
         }
         Some("install-wsl1-autostart") => {
-            if let Err(e) = wsl1_autostart::install() {
+            let mode = if args.any(|arg| arg == "--print") {
+                wsl1_autostart::Mode::Print
+            } else {
+                wsl1_autostart::Mode::Edit
+            };
+            if let Err(e) = wsl1_autostart::install(mode) {
                 eprintln!("cc-semaphored: {e}");
                 std::process::exit(1);
             }
@@ -36,7 +41,7 @@ fn main() {
         other => {
             eprintln!(
                 "cc-semaphored: unknown command {other:?}\n\
-                 Usage: cc-semaphored <daemon|once|watch|install-service|install-wsl1-autostart>"
+                 Usage: cc-semaphored <daemon|once|watch|install-service|install-wsl1-autostart [--print]>"
             );
             std::process::exit(2);
         }
