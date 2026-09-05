@@ -25,7 +25,7 @@ pub enum Mode {
     Print,
 }
 
-const BEGIN_MARKER: &str = "# cc-semaphore: BEGIN (WSL1 autostart, see 02_design.md §3.7)";
+const BEGIN_MARKER: &str = "# cc-semaphore: BEGIN (WSL1 autostart)";
 const END_MARKER: &str = "# cc-semaphore: END";
 
 fn bashrc_path() -> PathBuf {
