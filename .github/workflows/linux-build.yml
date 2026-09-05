@@ -1,0 +1,45 @@
+name: Linux build
+
+# Cross-compiles cc-semaphored (the daemon) as a static x86_64-unknown-
+# linux-musl binary, so users don't need a Rust toolchain on either
+# machine to get it — one binary works unmodified on both native Ubuntu
+# and WSL1 (02_design.md §3.1). This is a distribution artifact, not a
+# test gate: `cargo build/test/clippy/fmt` for this project's actual dev
+# platform (Ubuntu) still run by hand on the dev machine, per §7.1.1's
+# existing "Linux CI is out of scope" decision — this workflow only
+# produces the downloadable binary.
+#
+# Same trigger shape as windows-build.yml for consistency: every push to
+# a pull request touching relevant paths, plus on-demand workflow_dispatch.
+on:
+  pull_request:
+    paths:
+      - "crates/cc-semaphore-daemon/**"
+      - "crates/cc-semaphore-core/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/linux-build.yml"
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Build cc-semaphored (static musl binary)
+        run: cargo build --release --target x86_64-unknown-linux-musl -p cc-semaphore-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cc-semaphored-linux-musl
+          path: target/x86_64-unknown-linux-musl/release/cc-semaphored
+          if-no-files-found: error

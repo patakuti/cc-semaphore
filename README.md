@@ -40,6 +40,19 @@ cargo test
 
 ## cc-semaphored の使い方
 
+Rustツールチェーンなしで導入したい場合は、GitHub Actions
+(`.github/workflows/linux-build.yml`、PRのpush毎+手動実行)がビルドする
+musl静的バイナリをartifactからダウンロードできる(ネイティブUbuntu・
+WSL1共通)。**推奨インストール先は`~/.local/bin/cc-semaphored`**
+(`install-wsl1-autostart`は実行時のバイナリパスをそのままフックに
+埋め込むため、後で場所を変えると自動起動が壊れる):
+
+```sh
+mkdir -p ~/.local/bin
+mv cc-semaphored ~/.local/bin/
+chmod +x ~/.local/bin/cc-semaphored
+```
+
 ```sh
 cc-semaphored once                    # 1回スキャンしてスナップショットJSONをstdoutへ
 cc-semaphored watch                   # 端末にライブ表示(1秒ごとに再描画)
@@ -134,9 +147,11 @@ Tauri本体の仕様によりLinuxでは検証不能なため、この2点のみ
 
 Windows+WSL1側の実測(Phase 0-C)は2台の実機WSL1機で完了しており、daemonは
 Ubuntu機でmuslクロスビルドした静的バイナリをそのままWSL1に配布できることを
-確認済み。`cc-semaphore-desktop` のWindows向けビルドは
-GitHub Actions(`.github/workflows/windows-build.yml`、PRのpush毎+手動実行)
-で行い、実機ユーザーはビルド成果物(.exe)をartifactからダウンロードする。
+確認済み。`cc-semaphore-desktop` のWindows向けビルドと`cc-semaphored`の
+musl静的バイナリビルドは、それぞれGitHub Actions
+(`.github/workflows/windows-build.yml` / `linux-build.yml`、いずれも
+PRのpush毎+手動実行)で行い、実機ユーザーはビルド成果物を
+artifactからダウンロードする。
 
 現在はPhase 7(WSL1側の自動起動・パッケージング・仕上げ)の終盤。
 設定パラメータの対応状況の最終確認(§10)、設計書・実装間の齟齬の
