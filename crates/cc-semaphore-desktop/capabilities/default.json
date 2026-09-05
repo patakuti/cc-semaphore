@@ -1,14 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capabilities for the main and popup windows: both listen for the Rust-emitted \"snapshot\" event and call get_snapshot once on load (02_design.md §7.3); only \"main\" starts a window drag from the data-tauri-drag-region header (§7.2), and only \"main\" resizes itself to fit its collapsed/expanded content (app.js) — the popup has neither, but sharing the permissions is harmless since it never calls them. allow-scale-factor/inner-size/outer-size are TEMPORARY, for the 2026-09-05 Windows sizing-bug diagnostic in app.js's reportDiag() — remove alongside it once diagnosed.",
+  "description": "Capabilities for the main and popup windows: both listen for the Rust-emitted \"snapshot\" event and call get_snapshot once on load (02_design.md §7.3); only \"main\" starts a window drag from the data-tauri-drag-region header (§7.2), and only \"main\" resizes itself to fit its collapsed/expanded content (app.js) — the popup has neither, but sharing the permissions is harmless since it never calls them.",
   "windows": ["main", "popup"],
-  "permissions": [
-    "core:event:default",
-    "core:window:allow-start-dragging",
-    "core:window:allow-set-size",
-    "core:window:allow-scale-factor",
-    "core:window:allow-inner-size",
-    "core:window:allow-outer-size"
-  ]
+  "permissions": ["core:event:default", "core:window:allow-start-dragging", "core:window:allow-set-size"]
 }

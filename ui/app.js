@@ -76,31 +76,6 @@ function fitWindowToCard() {
     const dpr = window.devicePixelRatio || 1;
     win.setSize(new tauriWindow.PhysicalSize(
         Math.ceil(width * dpr), Math.ceil(height * dpr)));
-    reportDiag(win, width, height);
-}
-
-// TEMPORARY — remove once the Windows window-sizing bug (user-reported
-// 2026-09-05, gray dead space beside the collapsed badges even after the
-// overflow:hidden scrollbar fix) is diagnosed. Surfaces the actual
-// measured/requested/reported values directly in the page (console.log
-// doesn't reach a visible terminal for this webview on either engine),
-// so real Windows numbers can be read off a screenshot instead of guessed.
-async function reportDiag(win, cssWidth, cssHeight) {
-    const el = document.getElementById('ccs-diag');
-    if (!el) return;
-    try {
-        const dpr = window.devicePixelRatio;
-        const [scaleFactor, outer, inner] = await Promise.all([
-            win.scaleFactor(), win.outerSize(), win.innerSize(),
-        ]);
-        el.textContent =
-            `css ${cssWidth.toFixed(1)}x${cssHeight.toFixed(1)} dpr ${dpr}\n` +
-            `scaleFactor ${scaleFactor}\n` +
-            `outer ${outer.width}x${outer.height} (phys)\n` +
-            `inner ${inner.width}x${inner.height} (phys)`;
-    } catch (e) {
-        el.textContent = `diag error: ${e}`;
-    }
 }
 
 export function updateSnapshot(snapshot, opts = {}) {
