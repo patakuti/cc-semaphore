@@ -1,51 +1,47 @@
 # cc-semaphore
 
-複数の Claude Code セッションを並行して動かしているとき、それぞれが
-「動作中(running)」「入力・許可待ち(waiting)」「放置中(idle)」の
-どれなのかを一目で把握するための監視ツール。
+A monitor for people running several [Claude Code](https://claude.com/claude-code)
+sessions at once. It shows, at a glance, which of your sessions are
+**running**, **waiting** for input, or sitting **idle** after finishing —
+so you know which one actually needs your attention.
 
-対象OS: Ubuntu(ネイティブLinux) / Windows 10・11 + WSL1。
+Supported platforms: Ubuntu (native Linux), and Windows 10/11 with WSL1.
 
-## 状態モデル
+## Screenshots
 
-| 状態 | 意味 | 色 |
+GNOME Shell top bar (running / waiting / idle counts):
+
+![GNOME top bar](docs/screenshots/gnome-topbar.png)
+
+The always-on-top panel (Windows), collapsed and expanded:
+
+![Panel collapsed](docs/screenshots/panel-collapsed.png)
+![Panel expanded](docs/screenshots/panel-expanded.png)
+
+## Status model
+
+| State | Meaning | Color |
 |---|---|---|
-| `running` | 処理中 | 緑 |
-| `waiting` | 入力・許可待ち(対応必須) | 黄 |
-| `idle` | タスク完了後、放置中(急ぎではない) | 赤 |
+| `running` | Actively working | Green |
+| `waiting` | Waiting on input/approval (needs you) | Yellow |
+| `idle` | Finished, sitting untouched (not urgent) | Red |
 
-## 構成
+## Getting started
 
-- `crates/cc-semaphore-core` — 状態ファイルのパース・3値マッピング・
-  生存判定・スナップショット生成(Rust、共有ライブラリ)
-- `crates/cc-semaphore-daemon` — 常駐デーモン `cc-semaphored`
-  (inotify監視 / WSL1ポーリング / スナップショット書き出し / CLI)
-- `crates/cc-semaphore-desktop` — Tauri v2 による Always-on-top 透過
-  ウィンドウ / Windowsシステムトレイ(トレイ数字のラスタライズ・割り込み点滅・
-  左右クリック共通のメニュー、いずれも実装済み)
-- `extensions/cc-semaphore@patakuti/` — GNOME Shell 46 拡張
-  (トップバーに状態別カウント表示、クリックでセッション一覧ポップアップ、
-  daemon生死表示)
-- `ui/` — GNOME拡張以外のフロントエンドが共有する静的UIアセット
-  (ビルド不要。npm/Node.jsは使用しない)。`demo.html` をブラウザで開けば
-  `python3 -m http.server -d ui` でスタンドアロン確認できる
-- `docs/protocol.md` — backend/frontend間のスナップショットプロトコル仕様
+### 1. Install the daemon (`cc-semaphored`)
 
-## ビルド
+`cc-semaphored` watches your Claude Code sessions and publishes a snapshot
+that the GNOME extension and the desktop app both read. It writes to
+`$XDG_RUNTIME_DIR/cc-semaphore/state.json` (falling back to
+`~/.cache/cc-semaphore/state.json`); the JSON format itself is documented
+in `docs/protocol.md`.
 
-```sh
-cargo build
-cargo test
-```
-
-## cc-semaphored の使い方
-
-Rustツールチェーンなしで導入したい場合は、GitHub Actions
-(`.github/workflows/linux-build.yml`、PRのpush毎+手動実行)がビルドする
-musl静的バイナリをartifactからダウンロードできる(ネイティブUbuntu・
-WSL1共通)。**推奨インストール先は`~/.local/bin/cc-semaphored`**
-(`install-wsl1-autostart`は実行時のバイナリパスをそのままフックに
-埋め込むため、後で場所を変えると自動起動が壊れる):
+Grab a prebuilt static binary from the project's GitHub Actions artifacts
+(`.github/workflows/linux-build.yml`, runs on every PR push and can also be
+triggered manually) — no Rust toolchain required, and the same binary works
+on native Ubuntu and WSL1. **Recommended install location:
+`~/.local/bin/cc-semaphored`** (the autostart hook below embeds whatever
+path you run it from, so moving the binary later breaks autostart):
 
 ```sh
 mkdir -p ~/.local/bin
@@ -54,111 +50,100 @@ chmod +x ~/.local/bin/cc-semaphored
 ```
 
 ```sh
-cc-semaphored once                    # 1回スキャンしてスナップショットJSONをstdoutへ
-cc-semaphored watch                   # 端末にライブ表示(1秒ごとに再描画)
-cc-semaphored daemon                  # 常駐開始
-cc-semaphored install-service         # (ネイティブLinux) systemd user unit を書き出す
-cc-semaphored install-wsl1-autostart  # (WSL1) ~/.bashrcに自動起動フックを追加する
-cc-semaphored install-wsl1-autostart --print  # 追加せず、内容を表示するだけ
+cc-semaphored once                    # scan once, print the snapshot JSON to stdout
+cc-semaphored watch                   # live view in the terminal (redraws every second)
+cc-semaphored daemon                  # run as a background daemon
+cc-semaphored install-service         # (native Linux) install a systemd user unit
+cc-semaphored install-wsl1-autostart  # (WSL1) add an autostart hook to ~/.bashrc
+cc-semaphored install-wsl1-autostart --print  # print the hook instead of editing the file
 ```
 
-`daemon` はスナップショットを `$XDG_RUNTIME_DIR/cc-semaphore/state.json`
-(無ければ `~/.cache/cc-semaphore/state.json`)に書き出す。スナップショット
-自体のJSON形式は `docs/protocol.md` を参照。
+Keeping it running differs by platform. On native Linux, `install-service`
+sets up a systemd user unit that starts automatically after login. WSL1 has
+no systemd and no real equivalent of "OS boot", so
+`install-wsl1-autostart` instead adds a hook to `~/.bashrc`: every new
+shell tries to start the daemon, and does nothing if one is already running
+(enforced by a lock file). If you'd rather not have a tool edit your shell
+rc file automatically, add `--print` — it leaves the file untouched and
+just prints the block for you to paste in yourself (into `.zshrc`, etc.).
 
-常駐化はOSごとに方法が異なる。ネイティブLinuxは`install-service`で
-systemd user unitを導入すればログイン後は自動で動く。WSL1にはsystemdも
-「OS起動」に相当するものも無いため、`install-wsl1-autostart`で
-`~/.bashrc`にフックを追加する — 以降、シェルを開くたびに起動を試み、
-既に動いていれば(ロックファイルにより)何もしない。`~/.bashrc`を
-自動編集されたくない場合は`--print`を付けると、ファイルには触れず
-追記すべき内容を表示するだけになる(`.zshrc`等への貼り付けも自分で行う)。
+### 2. Pick a frontend
 
-設定ファイル(`~/.config/cc-semaphore/config.json`、任意・省略可)で
-上書きできるパラメータ:
+- **GNOME Shell** (Ubuntu): see [GNOME Shell extension](#gnome-shell-extension) below.
+- **Windows**: build `cc-semaphore-desktop` (see below) for a system tray
+  icon plus an optional always-on-top panel.
 
-| キー | 既定値 | 意味 |
-|---|---|---|
-| `includeKinds` | `["interactive"]` | 表示対象とするセッション種別 |
-| `inotifyDebounceMs` | `150` | Linux inotifyイベントのデバウンス |
-| `livenessTickSecs` | `5` | Linuxでのプロセス生存確認の周期 |
-| `wsl1PollIntervalMs` | `1000` | WSL1でのポーリング間隔 |
-| `windowsStateDir` | (自動判定) | WSL1→Windows書き出し先の明示的な上書き |
-
-`cc-semaphore-desktop`(Windows/Tauri側)も同じ`config.json`
-(Windowsは`%APPDATA%\cc-semaphore\config.json`)から`windowsPollIntervalMs`
-(既定`500`、DrvFs越しのmtimeポーリング間隔)だけを読む。上記以外の
-タイミング(UI再描画・トレイのローテーション・点滅・GNOME拡張の保険
-再読込)は意図的な固定値で、設定ファイルでは変更できない。
-
-## GNOME Shell拡張のインストール(開発用)
+## GNOME Shell extension
 
 ```sh
 ln -sfn "$(pwd)/extensions/cc-semaphore@patakuti" \
   ~/.local/share/gnome-shell/extensions/cc-semaphore@patakuti
-# GNOME Shellをリスタート(X11: Alt+F2 → r → Enter。Waylandはログアウト/ログイン)
+# Restart GNOME Shell (X11: Alt+F2 → r → Enter. On Wayland, log out and back in)
 gnome-extensions enable cc-semaphore@patakuti
 ```
 
-daemonが動作していない(heartbeatが15秒以上更新されていない)ときは、
-トップバーのカウント表示が`⚠`単独表示に切り替わり、ポップアップメニューにも
-「daemon停止中」の旨が表示される(Tauri版と同じ`heartbeat.json`を参照)。
+The top bar shows the three counts (green/yellow/red). Click it to open a
+popup with the full session list, sorted so the most recently changed
+session is at the top. If the daemon isn't running (no heartbeat for 15+
+seconds), the counts are replaced by a single `⚠` and the popup says so
+too.
 
-## Always-on-top透過ウィンドウの起動(開発用)
+## Windows: system tray + always-on-top panel
 
 ```sh
-cc-semaphored daemon &      # 別途、常駐デーモンを起動しておく
-cargo run -p cc-semaphore-desktop           # トレイ経由(既定で非表示)
-cargo run -p cc-semaphore-desktop -- --panel  # 起動直後からパネルを表示
+cc-semaphored daemon &                        # run the daemon separately
+cargo run -p cc-semaphore-desktop             # tray icon only, panel hidden by default
+cargo run -p cc-semaphore-desktop -- --panel  # also open the panel right away
 ```
 
-npm・Node.jsは使わない。`ui/` の静的アセットをそのまま `frontendDist` として
-Tauriに読み込ませている。
+Either mouse button on the tray icon opens the same menu (`Show panel` /
+`Quit`). The panel itself starts collapsed, showing just the three counts
+as solid badges; click it to expand into the full session list (sorted the
+same way as the GNOME extension's popup — most recently changed on top).
+The card's background defaults to 90% transparent; while expanded, `[` /
+`]` step it in 5% increments, and your choice is remembered across
+restarts. If the daemon isn't running, the tray icon turns into a gray `?`
+and the panel shows `⚠ daemon not running`.
 
-透過ウィンドウ(パネル)は既定で非表示。トレイアイコンを左右どちらの
-ボタンでクリックしても同じメニューが出るので、そこから「Show panel」で
-表示をトグルするか、`--panel`オプション付きで起動するとトレイ操作なしに
-起動直後からパネルが開く(トレイ自体は通常通り起動し、終了は引き続き
-トレイメニューの`Quit`から行う)。
+## Configuration
 
-パネルは既定で`running/waiting/idle`の3つの数字(丸い不透明バッジ)だけを
-表示し、クリックするとセッション一覧に展開する。展開時の一覧は、
-backendが返す`waiting→idle→running`優先度ではなく**経過時間が短い順**
-(直近で状態が変わったものが上)に並ぶ(GNOME拡張のポップアップも同じ
-並び順)。カードの背景は既定で90%透過。展開中に`[`(より透明に)/
-`]`(より不透明に)キーで5%刻みに調整でき、値は次回起動時にも引き継がれる。
+All of it is optional — cc-semaphore works out of the box with no config
+file. To override the defaults, create
+`~/.config/cc-semaphore/config.json` (`%APPDATA%\cc-semaphore\config.json`
+on Windows):
 
-daemonが動作していない(heartbeatが15秒以上更新されていない)ときは、
-トレイがグレーの`?`アイコンになり、パネルには「⚠ daemon not running」と
-表示される。
+| Key | Default | Meaning |
+|---|---|---|
+| `includeKinds` | `["interactive"]` | Which session kinds to show |
+| `inotifyDebounceMs` | `150` | Debounce for Linux inotify events |
+| `livenessTickSecs` | `5` | How often to re-check process liveness on Linux |
+| `wsl1PollIntervalMs` | `1000` | Poll interval on WSL1 |
+| `windowsStateDir` | (auto-detected) | Explicit override for the WSL1→Windows snapshot path |
+| `windowsPollIntervalMs` | `500` | (`cc-semaphore-desktop` only) mtime poll interval across DrvFs |
 
-## 開発状況
+Everything else (UI redraw rate, tray icon rotation/blink timing, the
+GNOME extension's fallback poll) is a fixed internal constant and isn't
+configurable.
 
-設計・計画フェーズ完了。実装は Phase 6(Windowsシステムトレイ)まで完了し、
-**Ubuntu環境で実用可能な状態**になった。実機(GNOME Shell 46 / X11、
-AppIndicator拡張が有効な環境)で、GNOME拡張のパネル表示・ポップアップ、
-透過ウィンドウの透過・最前面固定・実データ表示、トレイアイコンの描画・
-ローテーション・メニュー・daemon生死表示まで動作確認済み。
-daemon生死表示はGNOME拡張側にも反映済み(このUbuntu機で実機確認済み)。
-ユーザーによるWindows実機での動作確認も完了しており、そこで得たフィードバック
-(トレイ数字のサイズ・点滅の見た目・赤文字の視認性・パネル既定非表示・
-daemon生死表示・パネルのスクロールバー表示とサイズずれの修正・左クリックの
-専用ポップアップ廃止と左右クリック共通メニュー化)はすべて反映済み。
-ツールチップはTauri本体の仕様によりLinuxでは検証不能なため、この1点のみ
-引き続きWindows実機での最終確認が必要。
+## Building from source
 
-Windows+WSL1側の実測(Phase 0-C)は2台の実機WSL1機で完了しており、daemonは
-Ubuntu機でmuslクロスビルドした静的バイナリをそのままWSL1に配布できることを
-確認済み。`cc-semaphore-desktop` のWindows向けビルドと`cc-semaphored`の
-musl静的バイナリビルドは、それぞれGitHub Actions
-(`.github/workflows/windows-build.yml` / `linux-build.yml`、いずれも
-PRのpush毎+手動実行)で行い、実機ユーザーはビルド成果物を
-artifactからダウンロードする。
+```sh
+cargo build
+cargo test
+```
 
-Phase 7(WSL1側の自動起動・パッケージング・仕上げ)は完了。設定パラメータの
-対応状況の最終確認(§10)、設計書・実装間の齟齬の最終監査(見つかった齟齬 —
-未実装だった`--reap-stale`の削除、廃止済み機能の記述漏れ等 — はすべて
-解消済み)、Windows向けNSISインストーラの生成とログイン時自動起動、
-WSL1側の自動起動(`install-wsl1-autostart`)、いずれも実機で動作確認済み
-(WSL1・Windowsとも)。
-詳細は開発時のみ手元に置く設計・計画ドキュメント(Git管理外)を参照。
+- `crates/cc-semaphore-core` — shared library: session-file parsing,
+  the running/waiting/idle mapping, liveness checks, snapshot generation
+- `crates/cc-semaphore-daemon` — the `cc-semaphored` binary (inotify
+  watcher, WSL1 poller, snapshot writer, CLI)
+- `crates/cc-semaphore-desktop` — the Tauri v2 app: always-on-top panel
+  and Windows system tray
+- `extensions/cc-semaphore@patakuti/` — the GNOME Shell 46 extension
+- `ui/` — static HTML/CSS/JS shared by every frontend except the GNOME
+  extension (no build step; no npm/Node.js). Open `ui/demo.html` via
+  `python3 -m http.server -d ui` for a standalone preview with sample data
+- `docs/protocol.md` — the JSON snapshot format shared between the daemon
+  and every frontend
+
+No npm, no bundler: `ui/`'s plain ES modules are loaded directly as
+Tauri's `frontendDist`.
