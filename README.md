@@ -5,6 +5,11 @@ sessions at once. It shows, at a glance, which of your sessions are
 **running**, **waiting** for input, or sitting **idle** after finishing —
 so you know which one actually needs your attention.
 
+Unlike tools built around cost tracking or a full transcript/log viewer,
+cc-semaphore answers exactly one question — *is anything waiting on me?*
+— and puts the answer in your OS status bar or system tray, not a
+terminal or browser tab you have to keep open and switch back to.
+
 Supported platforms: native Linux (Ubuntu), or Windows 10/11 — **but on
 Windows, WSL is required**: `cc-semaphored` (the daemon that actually
 watches your sessions) is a Linux binary with no native Windows build, so
@@ -75,6 +80,11 @@ that the frontends read. It writes to
 `~/.cache/cc-semaphore/state.json`); the JSON format itself is documented
 in `docs/protocol.md`. **On Windows, run this inside WSL** — there is no
 native Windows build of the daemon.
+
+That directory is created (and re-chmodded on every write) as `0700`, so
+other local users on the same Linux/WSL machine can't read your session
+snapshot — the missing directory search permission blocks them regardless
+of the file's own mode.
 
 Download `cc-semaphored-linux-x86_64` from
 [Releases](https://github.com/patakuti/cc-semaphore/releases) (see
@@ -220,3 +230,7 @@ cargo test
 
 No npm, no bundler: `ui/`'s plain ES modules are loaded directly as
 Tauri's `frontendDist`.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
