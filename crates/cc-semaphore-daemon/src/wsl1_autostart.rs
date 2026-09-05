@@ -6,15 +6,24 @@
 //! Linux machine does — it only starts when the user opens a shell. A
 //! shell-startup hook is the WSL1 equivalent of `WantedBy=default.target`.
 //!
-//! Deliberately edits `~/.bashrc` directly rather than only printing the
-//! snippet for the user to paste in themselves: appending a clearly
-//! delimited, idempotent block to a file the user can immediately read
-//! and diff is the same level of directness `systemd::install` already
-//! uses when it writes the unit file — the caution that module documents
-//! is about not silently invoking `systemctl` (an external command with
-//! side effects), not about avoiding file writes altogether.
+//! Defaults to editing `~/.bashrc` directly: appending a clearly delimited,
+//! idempotent block to a file the user can immediately read and diff is
+//! the same level of directness `systemd::install` already uses when it
+//! writes the unit file — the caution that module documents is about not
+//! silently invoking `systemctl` (an external command with side effects),
+//! not about avoiding file writes altogether. Some users would rather not
+//! have a tool touch their shell rc file at all, though (user feedback,
+//! 2026-09-05) — `Mode::Print` covers that by only printing the snippet
+//! for them to add by hand.
 
 use std::path::{Path, PathBuf};
+
+pub enum Mode {
+    /// Append to `~/.bashrc` directly (the default).
+    Edit,
+    /// Only print the snippet; never touch any file.
+    Print,
+}
 
 const BEGIN_MARKER: &str = "# cc-semaphore: BEGIN (WSL1 autostart, see 02_design.md §3.7)";
 const END_MARKER: &str = "# cc-semaphore: END";
@@ -53,12 +62,21 @@ fn appended(bashrc: &str, snippet: &str) -> String {
     }
 }
 
-pub fn install() -> Result<(), String> {
+pub fn install(mode: Mode) -> Result<(), String> {
     if !crate::env::is_wsl() {
         eprintln!(
             "cc-semaphored: this doesn't look like WSL1 — on native Linux, \
              use `install-service` instead. Continuing anyway."
         );
+    }
+
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let snippet = build_snippet(&exe);
+
+    if matches!(mode, Mode::Print) {
+        println!("Add this block to ~/.bashrc (or ~/.zshrc) yourself:\n");
+        print!("{snippet}");
+        return Ok(());
     }
 
     let path = bashrc_path();
@@ -71,8 +89,6 @@ pub fn install() -> Result<(), String> {
         return Ok(());
     }
 
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let snippet = build_snippet(&exe);
     let updated = appended(&existing, &snippet);
     std::fs::write(&path, updated).map_err(|e| e.to_string())?;
 
