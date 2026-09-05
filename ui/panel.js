@@ -1,6 +1,6 @@
 // Pure session-list rendering. No build step, no framework — a plain ES
-// module consumed directly by index.html (Always-on-top window) and
-// popup.html (tray click popup). See 02_design.md §4.2, §7.3.
+// module consumed directly by index.html (the always-on-top window). See
+// 02_design.md §4.2, §7.3.
 //
 // This module never fetches or times anything itself: callers (app.js)
 // own the data source and the redraw timer, and pass in `now` so this

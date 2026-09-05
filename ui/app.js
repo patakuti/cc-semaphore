@@ -1,5 +1,5 @@
-// Thin wiring shared by index.html and popup.html: owns the 1s redraw
-// timer (02_design.md §10) and re-renders the last snapshot it was given.
+// Thin wiring for index.html: owns the 1s redraw timer (02_design.md §10)
+// and re-renders the last snapshot it was given.
 // It does not fetch anything itself — Phase 5/6 (the Tauri desktop crate)
 // call `window.ccSemaphoreUpdate(snapshot)` from a Rust `emit` listener;
 // demo.html calls it directly with a static sample for browser preview.
@@ -23,15 +23,17 @@ function render() {
     fitWindowToCard();
 }
 
-// Always-on-top window only (02_design.md §7.2, user request 2026-09-03):
-// its expanded list orders sessions by ascending elapsed-in-state (most
+// The expanded list orders sessions by ascending elapsed-in-state (most
 // recently changed on top), ignoring the waiting→idle→running priority
-// grouping the backend otherwise guarantees (02_design.md §2.4). That
-// backend order — and the "frontend must not re-sort" invariant — still
-// holds everywhere else (popup.html's tray click popup, GNOME extension);
-// this reorder is local to this one frontend's own display and never
-// touches the snapshot the backend produced or panel.js's own rendering
-// (which still just renders whatever array it's handed, unsorted).
+// grouping the backend itself produces (02_design.md §2.4, §7.2). This
+// reorder is display-only — it never touches the snapshot the backend
+// produced, and panel.js's own rendering still just renders whatever
+// array it's handed, unsorted. The GNOME extension applies the identical
+// rule independently in its own rendering code (extension.js's
+// `_renderMenu`, 2026-09-05 — it doesn't share this JS module), so both
+// of the project's two session-list UIs now agree; the backend's own
+// order remains its documented contract for any other consumer
+// (docs/protocol.md).
 function sessionsForList(snapshot) {
     if (!snapshot || !document.body.classList.contains('ccs-window'))
         return snapshot;
@@ -98,10 +100,9 @@ export function setDaemonAlive(alive) {
 window.ccSemaphoreUpdate = updateSnapshot;
 window.ccSemaphoreSetDaemonStatus = setDaemonAlive;
 
-// Collapse/expand (02_design.md §7.2, 2026-09-03): only the always-on-top
-// window (.ccs-window) has this — the tray's click popup (.ccs-popup)
-// already required a click to open, so it always shows the full session
-// list. Collapsed is the default: this window sits on top of everything,
+// Collapse/expand (02_design.md §7.2, 2026-09-03): the always-on-top
+// window (.ccs-window) is the only UI this applies to. Collapsed is the
+// default: this window sits on top of everything,
 // so it should stay out of the way until asked for detail. This is a
 // webview-local toggle, independent of the window's own show/hide (driven
 // from the Rust side via the tray menu) — the window isn't recreated on
