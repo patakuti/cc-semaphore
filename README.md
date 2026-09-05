@@ -41,15 +41,22 @@ cargo test
 ## cc-semaphored の使い方
 
 ```sh
-cc-semaphored once             # 1回スキャンしてスナップショットJSONをstdoutへ
-cc-semaphored watch            # 端末にライブ表示(1秒ごとに再描画)
-cc-semaphored daemon           # 常駐開始(通常はsystemdから起動する)
-cc-semaphored install-service  # systemd user unit を書き出す
+cc-semaphored once                    # 1回スキャンしてスナップショットJSONをstdoutへ
+cc-semaphored watch                   # 端末にライブ表示(1秒ごとに再描画)
+cc-semaphored daemon                  # 常駐開始
+cc-semaphored install-service         # (ネイティブLinux) systemd user unit を書き出す
+cc-semaphored install-wsl1-autostart  # (WSL1) ~/.bashrcに自動起動フックを追加する
 ```
 
 `daemon` はスナップショットを `$XDG_RUNTIME_DIR/cc-semaphore/state.json`
 (無ければ `~/.cache/cc-semaphore/state.json`)に書き出す。スナップショット
 自体のJSON形式は `docs/protocol.md` を参照。
+
+常駐化はOSごとに方法が異なる。ネイティブLinuxは`install-service`で
+systemd user unitを導入すればログイン後は自動で動く。WSL1にはsystemdも
+「OS起動」に相当するものも無いため、`install-wsl1-autostart`で
+`~/.bashrc`にフックを追加する — 以降、シェルを開くたびに起動を試み、
+既に動いていれば(ロックファイルにより)何もしない。
 
 設定ファイル(`~/.config/cc-semaphore/config.json`、任意・省略可)で
 上書きできるパラメータ:
@@ -128,11 +135,11 @@ Ubuntu機でmuslクロスビルドした静的バイナリをそのままWSL1に
 GitHub Actions(`.github/workflows/windows-build.yml`、PRのpush毎+手動実行)
 で行い、実機ユーザーはビルド成果物(.exe)をartifactからダウンロードする。
 
-現在はPhase 7(WSL1側の自動起動・パッケージング・仕上げ)に着手中。
-設定パラメータの対応状況の最終確認(§10)と、設計書・実装間の齟齬の
-最終監査は完了し、見つかった齟齬(未実装だった`--reap-stale`の削除、
-廃止済み機能の記述漏れ等)はすべて解消済み。残るはWSL1側の自動起動
-手段、Windows向けインストーラの生成とスタートアップ登録 — いずれも
-実機(WSL1・Windows)での検証が必要なため、確認できる環境が整い次第
-着手する。
+現在はPhase 7(WSL1側の自動起動・パッケージング・仕上げ)の終盤。
+設定パラメータの対応状況の最終確認(§10)、設計書・実装間の齟齬の
+最終監査(見つかった齟齬 — 未実装だった`--reap-stale`の削除、廃止済み
+機能の記述漏れ等 — はすべて解消済み)、Windows向けNSISインストーラの
+生成とログイン時自動起動、WSL1側の自動起動(`install-wsl1-autostart`)
+まで実装済み。Windows側は実機で動作確認済み。WSL1側は実装・ローカルの
+単体テストまで完了しており、実機WSL1での最終確認待ち。
 詳細は開発時のみ手元に置く設計・計画ドキュメント(Git管理外)を参照。
