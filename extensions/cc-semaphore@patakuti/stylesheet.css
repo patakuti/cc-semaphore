@@ -27,6 +27,10 @@
     color: #f5c211;
 }
 
+.ccs-popup-version-mismatch {
+    color: #f5c211;
+}
+
 .ccs-popup-dot {
     font-weight: bold;
     padding-right: 6px;

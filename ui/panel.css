@@ -204,3 +204,13 @@ html {
     font-weight: bold;
     padding: 6px 2px;
 }
+
+/* Snapshot-version mismatch (02_design.md §2.2.1): same treatment as
+   .ccs-daemon-down — both mean "don't trust what you'd otherwise render
+   here" — kept as a separate class since the two conditions are distinct
+   and mutually exclusive. */
+.ccs-version-mismatch {
+    color: #f5c211;
+    font-weight: bold;
+    padding: 6px 2px;
+}

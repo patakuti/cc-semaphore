@@ -10,8 +10,8 @@
 function apply(payload) {
     if (!payload)
         return;
-    const {snapshot, homeDir, daemonAlive} = payload;
-    window.ccSemaphoreUpdate(snapshot, {homeDir, daemonAlive});
+    const {snapshot, homeDir, daemonAlive, versionSupported} = payload;
+    window.ccSemaphoreUpdate(snapshot, {homeDir, daemonAlive, versionSupported});
 }
 
 window.__TAURI__.event.listen('snapshot', (event) => apply(event.payload));

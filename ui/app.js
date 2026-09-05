@@ -12,14 +12,18 @@ let homeDir = null;
 // (from get_snapshot's response or the first "snapshot"/"daemon-status"
 // event) has arrived (02_design.md §3.9).
 let daemonAlive = true;
+// Same optimistic-default reasoning as daemonAlive above, and likewise
+// only ever set to false by real data (02_design.md §2.2.1) — this build
+// can't know a snapshot is unsupported until it has actually seen one.
+let versionSupported = true;
 
 function render() {
     const sessionsEl = document.getElementById('sessions');
     const countsEl = document.getElementById('counts');
     if (sessionsEl)
-        renderPanel(sessionsForList(latestSnapshot), sessionsEl, {homeDir, now: Date.now(), daemonAlive});
+        renderPanel(sessionsForList(latestSnapshot), sessionsEl, {homeDir, now: Date.now(), daemonAlive, versionSupported});
     if (countsEl && latestSnapshot)
-        renderCounts(latestSnapshot.counts, countsEl, {daemonAlive});
+        renderCounts(latestSnapshot.counts, countsEl, {daemonAlive, versionSupported});
     fitWindowToCard();
 }
 
@@ -86,6 +90,8 @@ export function updateSnapshot(snapshot, opts = {}) {
         homeDir = opts.homeDir;
     if (opts.daemonAlive !== undefined)
         daemonAlive = opts.daemonAlive;
+    if (opts.versionSupported !== undefined)
+        versionSupported = opts.versionSupported;
     render();
 }
 
