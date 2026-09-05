@@ -5,7 +5,31 @@ sessions at once. It shows, at a glance, which of your sessions are
 **running**, **waiting** for input, or sitting **idle** after finishing —
 so you know which one actually needs your attention.
 
-Supported platforms: Ubuntu (native Linux), and Windows 10/11 with WSL1.
+Supported platforms: native Linux (Ubuntu), or Windows 10/11 — **but on
+Windows, WSL is required**: `cc-semaphored` (the daemon that actually
+watches your sessions) is a Linux binary with no native Windows build, so
+it always runs inside WSL. `cc-semaphore-desktop` (the Windows tray icon
+and panel) is only a frontend — it reads the snapshot WSL bridges over to
+the Windows side, it doesn't watch sessions itself.
+
+## Setup patterns
+
+Three concrete setups, each with its own instructions below:
+
+| Setup | Daemon runs in | Frontend |
+|---|---|---|
+| Native Linux | the same machine (inotify) | GNOME Shell extension |
+| Windows 10/11 + WSL1 | WSL1 (polling) | `cc-semaphore-desktop` on Windows |
+| Windows 10/11 + WSL2 | WSL2 (polling) | `cc-semaphore-desktop` on Windows |
+
+WSL1 and WSL2 are set up identically here: this project doesn't currently
+tell them apart (see `is_wsl()` in `crates/cc-semaphore-daemon/src/env.rs`)
+and always treats either one like WSL1 — same polling-based daemon, same
+`install-wsl1-autostart` command. That's a deliberate, conservative
+default rather than a verified WSL2 optimization (inotify might well work
+inside WSL2 too, but that hasn't been tested on real hardware), so don't
+read "WSL2" in this doc as a distinct, better-supported path — it's the
+same instructions as WSL1 throughout.
 
 ## Screenshots
 
@@ -31,8 +55,8 @@ The always-on-top panel (Windows), collapsed and expanded:
 Prebuilt binaries for every tagged version are attached to the
 [GitHub Releases](https://github.com/patakuti/cc-semaphore/releases) page:
 
-- **Linux / WSL1**: `cc-semaphored-linux-x86_64` — a static binary, no
-  Rust toolchain needed, works unmodified on native Ubuntu and WSL1.
+- **Linux / WSL**: `cc-semaphored-linux-x86_64` — a static binary, no
+  Rust toolchain needed, works unmodified on native Ubuntu, WSL1, and WSL2.
 - **Windows**: either `cc-semaphore-desktop.exe` (just copy and run) or
   the NSIS installer (`cc-semaphore-desktop_*_x64-setup.exe`), which also
   registers the app to start on login.
@@ -46,17 +70,19 @@ also produces the same binaries as workflow artifacts
 ### 1. Install the daemon (`cc-semaphored`)
 
 `cc-semaphored` watches your Claude Code sessions and publishes a snapshot
-that the GNOME extension and the desktop app both read. It writes to
+that the frontends read. It writes to
 `$XDG_RUNTIME_DIR/cc-semaphore/state.json` (falling back to
 `~/.cache/cc-semaphore/state.json`); the JSON format itself is documented
-in `docs/protocol.md`.
+in `docs/protocol.md`. **On Windows, run this inside WSL** — there is no
+native Windows build of the daemon.
 
 Download `cc-semaphored-linux-x86_64` from
 [Releases](https://github.com/patakuti/cc-semaphore/releases) (see
 [Downloads](#downloads) above) — no Rust toolchain required, and the same
-binary works on native Ubuntu and WSL1. **Recommended install location:
-`~/.local/bin/cc-semaphored`** (the autostart hook below embeds whatever
-path you run it from, so moving the binary later breaks autostart):
+binary works everywhere it's needed here (native Linux, WSL1, WSL2).
+**Recommended install location: `~/.local/bin/cc-semaphored`** (the WSL
+autostart hook below embeds whatever path you run it from, so moving the
+binary later breaks autostart):
 
 ```sh
 mkdir -p ~/.local/bin
@@ -65,30 +91,49 @@ chmod +x ~/.local/bin/cc-semaphored
 ```
 
 ```sh
-cc-semaphored once                    # scan once, print the snapshot JSON to stdout
-cc-semaphored watch                   # live view in the terminal (redraws every second)
-cc-semaphored daemon                  # run as a background daemon
-cc-semaphored install-service         # (native Linux) install a systemd user unit
-cc-semaphored install-wsl1-autostart  # (WSL1) add an autostart hook to ~/.bashrc
-cc-semaphored install-wsl1-autostart --print  # print the hook instead of editing the file
+cc-semaphored once   # scan once, print the snapshot JSON to stdout
+cc-semaphored watch  # live view in the terminal (redraws every second)
+cc-semaphored daemon # run as a background daemon
 ```
 
-Keeping it running differs by platform. On native Linux, `install-service`
-sets up a systemd user unit that starts automatically after login. WSL1 has
-no systemd and no real equivalent of "OS boot", so
-`install-wsl1-autostart` instead adds a hook to `~/.bashrc`: every new
-shell tries to start the daemon, and does nothing if one is already running
-(enforced by a lock file). If you'd rather not have a tool edit your shell
-rc file automatically, add `--print` — it leaves the file untouched and
-just prints the block for you to paste in yourself (into `.zshrc`, etc.).
+Keeping it running differs by platform:
+
+- **Native Linux**: `cc-semaphored install-service` writes a systemd user
+  unit that starts automatically after login:
+
+  ```sh
+  cc-semaphored install-service
+  systemctl --user daemon-reload
+  systemctl --user enable --now cc-semaphore.service
+  ```
+
+- **WSL1 or WSL2**: this project doesn't currently tell WSL1 and WSL2
+  apart — see [Setup patterns](#setup-patterns) above — so instead
+  `cc-semaphored install-wsl1-autostart` adds a hook to `~/.bashrc`: every
+  new shell tries to start the daemon, and does nothing if one is already
+  running (enforced by a lock file):
+
+  ```sh
+  cc-semaphored install-wsl1-autostart
+  ```
+
+  If you'd rather not have a tool edit your shell rc file automatically,
+  add `--print` instead — it leaves the file untouched and just prints
+  the block for you to paste in yourself (into `.zshrc`, etc.):
+
+  ```sh
+  cc-semaphored install-wsl1-autostart --print
+  ```
 
 ### 2. Pick a frontend
 
-- **GNOME Shell** (Ubuntu): see [GNOME Shell extension](#gnome-shell-extension) below.
-- **Windows**: download `cc-semaphore-desktop` (see below) for a system
-  tray icon plus an optional always-on-top panel.
+- **Native Linux**: the [GNOME Shell extension](#gnome-shell-extension-native-linux) below.
+- **Windows (WSL1 or WSL2)**: [`cc-semaphore-desktop`](#windows-wsl1-or-wsl2-tray-icon-and-panel)
+  below — a system tray icon plus an optional always-on-top panel, running
+  natively on Windows (not inside WSL) and reading the snapshot WSL
+  bridges over.
 
-## GNOME Shell extension
+## GNOME Shell extension (native Linux)
 
 ```sh
 ln -sfn "$(pwd)/extensions/cc-semaphore@patakuti" \
@@ -103,7 +148,12 @@ session is at the top. If the daemon isn't running (no heartbeat for 15+
 seconds), the counts are replaced by a single `⚠` and the popup says so
 too.
 
-## Windows: system tray + always-on-top panel
+## Windows (WSL1 or WSL2): tray icon and panel
+
+Requires the daemon (`cc-semaphored`) already installed and running
+inside WSL — see [Install the daemon](#1-install-the-daemon-cc-semaphored)
+above. `cc-semaphore-desktop` itself is a normal Windows app; it does not
+run inside WSL.
 
 Easiest path: install via the NSIS installer or just run the `.exe` from
 [Releases](https://github.com/patakuti/cc-semaphore/releases) (see
@@ -140,8 +190,8 @@ on Windows):
 | `includeKinds` | `["interactive"]` | Which session kinds to show |
 | `inotifyDebounceMs` | `150` | Debounce for Linux inotify events |
 | `livenessTickSecs` | `5` | How often to re-check process liveness on Linux |
-| `wsl1PollIntervalMs` | `1000` | Poll interval on WSL1 |
-| `windowsStateDir` | (auto-detected) | Explicit override for the WSL1→Windows snapshot path |
+| `wsl1PollIntervalMs` | `1000` | Poll interval under WSL (the key name says WSL1, but it applies equally to WSL2 — see [Setup patterns](#setup-patterns)) |
+| `windowsStateDir` | (auto-detected) | Explicit override for the WSL→Windows snapshot path |
 | `windowsPollIntervalMs` | `500` | (`cc-semaphore-desktop` only) mtime poll interval across DrvFs |
 
 Everything else (UI redraw rate, tray icon rotation/blink timing, the
@@ -158,7 +208,7 @@ cargo test
 - `crates/cc-semaphore-core` — shared library: session-file parsing,
   the running/waiting/idle mapping, liveness checks, snapshot generation
 - `crates/cc-semaphore-daemon` — the `cc-semaphored` binary (inotify
-  watcher, WSL1 poller, snapshot writer, CLI)
+  watcher, WSL poller, snapshot writer, CLI)
 - `crates/cc-semaphore-desktop` — the Tauri v2 app: always-on-top panel
   and Windows system tray
 - `extensions/cc-semaphore@patakuti/` — the GNOME Shell 46 extension
