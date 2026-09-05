@@ -30,11 +30,37 @@ jobs:
         with:
           workspaces: ". -> target"
 
-      - name: Build cc-semaphore-desktop
-        run: cargo build --release -p cc-semaphore-desktop
+      # 02_design.md §7.1.1 (2026-09-05 revision): building via `cargo
+      # build` alone (the original approach) never produced the NSIS
+      # installer declared in tauri.conf.json's bundle.targets — bundling
+      # is the Tauri CLI's job, not cargo's. tauri-cli itself is a plain
+      # crates.io crate (same supply-chain tier as every other dependency
+      # here), so this stays consistent with the project's minimal/
+      # crates.io-only dependency policy (01_requirements.md §4.1) rather
+      # than pulling in a separate third-party GitHub Action.
+      - name: Cache tauri-cli
+        id: cache-tauri-cli
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-tauri.exe
+          key: windows-tauri-cli-v2
+
+      - name: Install tauri-cli
+        if: steps.cache-tauri-cli.outputs.cache-hit != 'true'
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Build cc-semaphore-desktop (binary + NSIS installer)
+        working-directory: crates/cc-semaphore-desktop
+        run: cargo tauri build
 
       - uses: actions/upload-artifact@v4
         with:
           name: cc-semaphore-desktop-windows
           path: target/release/cc-semaphore-desktop.exe
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cc-semaphore-desktop-windows-installer
+          path: target/release/bundle/nsis/*.exe
           if-no-files-found: error

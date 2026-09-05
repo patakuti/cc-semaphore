@@ -16,3 +16,6 @@ ab_glyph = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 inotify = { version = "0.11", default-features = false }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+tauri-plugin-autostart = "2"
