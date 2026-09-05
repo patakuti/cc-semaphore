@@ -6,6 +6,7 @@ mod systemd;
 mod targets;
 mod watch_linux;
 mod writer;
+mod wsl1_autostart;
 
 use cc_semaphore_core::{SessionState, Snapshot};
 use lock::DaemonLock;
@@ -26,10 +27,21 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Some("install-wsl1-autostart") => {
+            let mode = if args.any(|arg| arg == "--print") {
+                wsl1_autostart::Mode::Print
+            } else {
+                wsl1_autostart::Mode::Edit
+            };
+            if let Err(e) = wsl1_autostart::install(mode) {
+                eprintln!("cc-semaphored: {e}");
+                std::process::exit(1);
+            }
+        }
         other => {
             eprintln!(
                 "cc-semaphored: unknown command {other:?}\n\
-                 Usage: cc-semaphored <daemon|once|watch|install-service>"
+                 Usage: cc-semaphored <daemon|once|watch|install-service|install-wsl1-autostart [--print]>"
             );
             std::process::exit(2);
         }
