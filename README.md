@@ -26,6 +26,21 @@ The always-on-top panel (Windows), collapsed and expanded:
 | `waiting` | Waiting on input/approval (needs you) | Yellow |
 | `idle` | Finished, sitting untouched (not urgent) | Red |
 
+## Downloads
+
+Prebuilt binaries for every tagged version are attached to the
+[GitHub Releases](https://github.com/patakuti/cc-semaphore/releases) page:
+
+- **Linux / WSL1**: `cc-semaphored-linux-x86_64` — a static binary, no
+  Rust toolchain needed, works unmodified on native Ubuntu and WSL1.
+- **Windows**: either `cc-semaphore-desktop.exe` (just copy and run) or
+  the NSIS installer (`cc-semaphore-desktop_*_x64-setup.exe`), which also
+  registers the app to start on login.
+
+No release yet, or want the latest unreleased build? Every pull request
+also produces the same binaries as workflow artifacts
+(`.github/workflows/linux-build.yml` / `windows-build.yml`).
+
 ## Getting started
 
 ### 1. Install the daemon (`cc-semaphored`)
@@ -36,16 +51,16 @@ that the GNOME extension and the desktop app both read. It writes to
 `~/.cache/cc-semaphore/state.json`); the JSON format itself is documented
 in `docs/protocol.md`.
 
-Grab a prebuilt static binary from the project's GitHub Actions artifacts
-(`.github/workflows/linux-build.yml`, runs on every PR push and can also be
-triggered manually) — no Rust toolchain required, and the same binary works
-on native Ubuntu and WSL1. **Recommended install location:
+Download `cc-semaphored-linux-x86_64` from
+[Releases](https://github.com/patakuti/cc-semaphore/releases) (see
+[Downloads](#downloads) above) — no Rust toolchain required, and the same
+binary works on native Ubuntu and WSL1. **Recommended install location:
 `~/.local/bin/cc-semaphored`** (the autostart hook below embeds whatever
 path you run it from, so moving the binary later breaks autostart):
 
 ```sh
 mkdir -p ~/.local/bin
-mv cc-semaphored ~/.local/bin/
+mv cc-semaphored-linux-x86_64 ~/.local/bin/cc-semaphored
 chmod +x ~/.local/bin/cc-semaphored
 ```
 
@@ -70,8 +85,8 @@ just prints the block for you to paste in yourself (into `.zshrc`, etc.).
 ### 2. Pick a frontend
 
 - **GNOME Shell** (Ubuntu): see [GNOME Shell extension](#gnome-shell-extension) below.
-- **Windows**: build `cc-semaphore-desktop` (see below) for a system tray
-  icon plus an optional always-on-top panel.
+- **Windows**: download `cc-semaphore-desktop` (see below) for a system
+  tray icon plus an optional always-on-top panel.
 
 ## GNOME Shell extension
 
@@ -89,6 +104,14 @@ seconds), the counts are replaced by a single `⚠` and the popup says so
 too.
 
 ## Windows: system tray + always-on-top panel
+
+Easiest path: install via the NSIS installer or just run the `.exe` from
+[Releases](https://github.com/patakuti/cc-semaphore/releases) (see
+[Downloads](#downloads) above) — either way, running it registers it to
+start on login automatically (no opt-out toggle; there's no separate
+"install" step beyond running it once).
+
+To run from source instead:
 
 ```sh
 cc-semaphored daemon &                        # run the daemon separately
