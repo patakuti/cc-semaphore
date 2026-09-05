@@ -1,8 +1,8 @@
 // Tauri-only wiring (02_design.md §7.3): listens for the "snapshot" event
 // the Rust side emits whenever the watched state.json changes, and feeds
 // it into the same window.ccSemaphoreUpdate hook app.js exposes. Loaded
-// only by index.html/popup.html — demo.html and any plain-browser preview
-// never load this file, so it is the only place that touches the Tauri
+// only by index.html — demo.html and any plain-browser preview never load
+// this file, so it is the only place that touches the Tauri
 // global (window.__TAURI__, enabled via app.withGlobalTauri in
 // tauri.conf.json since this project uses no npm/bundler to import
 // @tauri-apps/api).

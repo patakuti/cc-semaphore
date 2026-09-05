@@ -158,10 +158,6 @@ fn main() {
                 });
             }
 
-            if let Some(popup) = app.get_webview_window("popup") {
-                tray::hide_popup_on_focus_lost(&popup);
-            }
-
             let state_path = cc_semaphore_core::local_state_path();
             let (initial_counts, initial_sessions) = read_counts_and_sessions(&state_path);
             tray::setup(

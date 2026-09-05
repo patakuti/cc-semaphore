@@ -76,13 +76,6 @@ html {
     width: max-content;
 }
 
-/* Tray click popup: opaque, no blur (matches the host OS's own popups). */
-.ccs-popup .ccs-card {
-    background: #1e1e1e;
-    padding: 8px 10px;
-    min-width: 320px;
-}
-
 .ccs-drag-handle {
     height: 14px;
 }
@@ -95,8 +88,7 @@ html {
 }
 
 /* Always-on-top window only (02_design.md §7.2): collapsed is the default,
-   showing just the counts row. Clicking it expands to the session list.
-   The tray's click popup (.ccs-popup) never collapses — see app.js. */
+   showing just the counts row. Clicking it expands to the session list. */
 .ccs-window .ccs-counts {
     cursor: pointer;
 }
@@ -126,9 +118,7 @@ html {
    required for a 1-digit badge to actually come out circular — without
    it the padding adds on top of min-width instead of being absorbed by
    it, so a single digit rendered as a 34x22 oval, not a 22x22 circle
-   (user-reported 2026-09-03). The tray's click popup (.ccs-popup) keeps
-   the plain colored-text style above; it already has an opaque card, so
-   a badge would add nothing there. */
+   (user-reported 2026-09-03). */
 .ccs-window .ccs-count {
     display: inline-flex;
     align-items: center;
