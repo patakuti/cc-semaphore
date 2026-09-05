@@ -42,6 +42,20 @@ backend (`cc-semaphored`) と frontend (GNOME拡張 / Tauriアプリ) の唯一�
   (GNOME拡張のパネル表示)のためにあらかじめ含める。
 - 時刻はすべて同一マシンのepoch ms。
 
+## バージョニングポリシー
+
+`version`は破壊的変更(フィールドの削除・意味変更)をしたときだけ上げる。
+フィールド追加のみの変更では上げない。backendとfrontendは別バイナリ・
+別リポジトリ的に独立して更新されうるため(WSL越しの`cc-semaphored`と
+`cc-semaphore-desktop`、GNOME拡張はdaemonのバイナリ更新とは独立に更新
+される)、各frontendは読み込んだスナップショットの`version`が自分の
+対応バージョンと一致するか確認し、一致しない場合は黙って壊れたデータ
+や直前のデータを表示し続けるのではなく、明示的な警告(`⚠ unsupported
+snapshot version`)を表示する。daemonがダウンしている場合の`⚠ daemon
+not running`とは別扱いだが、UI上の見た目・優先度は同等(daemon-downが
+優先)。実装は`cc-semaphore-desktop`の`SnapshotEvent.versionSupported`と
+GNOME拡張の`SUPPORTED_SNAPSHOT_VERSION`定数を参照(02_design.md §2.2.1)。
+
 ## 一覧に含める条件
 
 1. Claude Code のセッションファイル名が `^\d+\.json$`

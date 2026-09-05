@@ -66,6 +66,10 @@ function renderRow(session, homeDir, now) {
 // clock reading. `opts.daemonAlive === false` (02_design.md §3.9) shows a
 // warning instead of the session list — an empty list and "daemon isn't
 // running" are different situations and must not look the same.
+// `opts.versionSupported === false` (02_design.md §2.2.1) takes the same
+// slot when the daemon is alive but writing a snapshot format this build
+// doesn't understand — checked after daemonAlive since a dead daemon's
+// last-known liveness is the more actionable warning.
 export function renderPanel(snapshot, rootEl, opts = {}) {
     const homeDir = opts.homeDir ?? null;
     const now = opts.now ?? Date.now();
@@ -73,6 +77,10 @@ export function renderPanel(snapshot, rootEl, opts = {}) {
     rootEl.textContent = '';
     if (opts.daemonAlive === false) {
         rootEl.appendChild(el('div', 'ccs-daemon-down', '⚠ daemon not running'));
+        return;
+    }
+    if (opts.versionSupported === false) {
+        rootEl.appendChild(el('div', 'ccs-version-mismatch', '⚠ unsupported snapshot version'));
         return;
     }
     const sessions = snapshot?.sessions ?? [];
@@ -93,7 +101,7 @@ export function renderPanel(snapshot, rootEl, opts = {}) {
 // (not zeroed) when the daemon is down, per the same reasoning as above.
 export function renderCounts(counts, rootEl, opts = {}) {
     rootEl.textContent = '';
-    if (opts.daemonAlive === false)
+    if (opts.daemonAlive === false || opts.versionSupported === false)
         return;
     for (const key of ['running', 'waiting', 'idle']) {
         rootEl.appendChild(el('span', `ccs-count ccs-${key}`, String(counts?.[key] ?? 0)));

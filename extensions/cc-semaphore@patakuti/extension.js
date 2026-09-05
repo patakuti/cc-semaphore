@@ -20,6 +20,12 @@ const ALERT_WINDOW_MS = 30000;
 
 // Must match cc_semaphore_core::heartbeat::STALE_AFTER_MS (02_design.md §3.9).
 const STALE_AFTER_MS = 15000;
+
+// Must match cc_semaphore_core::SNAPSHOT_VERSION (02_design.md §2.2.1). This
+// extension doesn't share Rust code with the daemon, so unlike
+// cc-semaphore-desktop it can't detect a format mismatch via a failed
+// deserialize — it has to check the field explicitly.
+const SUPPORTED_SNAPSHOT_VERSION = 1;
 // Independent of FALLBACK_POLL_SECS: state.json isn't rewritten when nothing
 // changed, so heartbeat staleness must be checked on its own cadence rather
 // than piggybacking on the FileMonitor/fallback-poll refresh. 5s matches the
@@ -143,6 +149,7 @@ class Indicator extends PanelMenu.Button {
 
         this._lastSnapshot = null;
         this._daemonAlive = true;
+        this._versionMismatch = false;
         this._fileMonitor = null;
         this._pollTimerId = null;
         this._heartbeatTimerId = null;
@@ -221,6 +228,11 @@ class Indicator extends PanelMenu.Button {
     _refresh() {
         this._lastSnapshot = readSnapshot();
         this._daemonAlive = daemonAlive();
+        // See 02_design.md §2.2.1. Independent of _daemonAlive: a stale
+        // heartbeat already wins in _renderPanel/_renderMenu below, this
+        // just needs to be correct whenever the daemon *is* alive.
+        this._versionMismatch = this._lastSnapshot?.version !== undefined
+            && this._lastSnapshot.version !== SUPPORTED_SNAPSHOT_VERSION;
         this._renderPanel();
         // Always keep the menu populated, not just while open: PopupMenu's
         // open() refuses to open an empty menu (isEmpty() guard), so if we
@@ -230,7 +242,7 @@ class Indicator extends PanelMenu.Button {
     }
 
     _renderPanel() {
-        if (!this._daemonAlive) {
+        if (!this._daemonAlive || this._versionMismatch) {
             this._runningLabel.hide();
             this._waitingLabel.hide();
             this._idleLabel.hide();
@@ -267,6 +279,14 @@ class Indicator extends PanelMenu.Button {
         if (!this._daemonAlive) {
             const item = new PopupMenu.PopupMenuItem('⚠ daemon not running', {reactive: false});
             item.add_style_class_name('ccs-popup-daemon-down');
+            this._sessionSection.addMenuItem(item);
+            return;
+        }
+        if (this._versionMismatch) {
+            const item = new PopupMenu.PopupMenuItem(
+                `⚠ unsupported snapshot version (v${this._lastSnapshot.version})`,
+                {reactive: false});
+            item.add_style_class_name('ccs-popup-version-mismatch');
             this._sessionSection.addMenuItem(item);
             return;
         }
