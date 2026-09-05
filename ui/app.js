@@ -63,8 +63,19 @@ function fitWindowToCard() {
     if (!tauriWindow || !card || !document.body.classList.contains('ccs-window'))
         return;
     const {width, height} = card.getBoundingClientRect();
-    tauriWindow.getCurrentWindow().setSize(
-        new tauriWindow.LogicalSize(Math.ceil(width), Math.ceil(height)));
+    const win = tauriWindow.getCurrentWindow();
+    // PhysicalSize computed from the webview's own devicePixelRatio, not
+    // LogicalSize (which Tauri converts using its Rust-side scaleFactor()):
+    // measured on Windows/WebView2 that the two can disagree (scaleFactor()
+    // 1.25 vs devicePixelRatio 1.5, likely a stale value from before the
+    // window — created hidden — was actually shown on its real monitor),
+    // undersizing the window relative to what the webview itself renders
+    // (02_design.md §7.2, user-reported 2026-09-05). devicePixelRatio is
+    // always the webview's own live value, so this can't disagree with
+    // itself the way cross-checking against Tauri's separate value can.
+    const dpr = window.devicePixelRatio || 1;
+    win.setSize(new tauriWindow.PhysicalSize(
+        Math.ceil(width * dpr), Math.ceil(height * dpr)));
 }
 
 export function updateSnapshot(snapshot, opts = {}) {
