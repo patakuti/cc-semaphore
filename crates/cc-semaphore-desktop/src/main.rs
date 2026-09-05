@@ -29,6 +29,12 @@ struct SnapshotEvent {
     home_dir: Option<String>,
     #[serde(rename = "daemonAlive")]
     daemon_alive: bool,
+    /// `false` when `snapshot.version` doesn't match the version this
+    /// binary was built against — see 02_design.md §2.2.1. A successful
+    /// deserialize doesn't by itself mean the format is one we understand:
+    /// a version bump can change field *meaning* without changing shape.
+    #[serde(rename = "versionSupported")]
+    version_supported: bool,
 }
 
 /// Reads and parses the snapshot file, tolerating a torn read (the writer
@@ -61,10 +67,14 @@ fn get_snapshot() -> Option<SnapshotEvent> {
     let home_dir = std::env::var("HOME").ok();
     let state_path = cc_semaphore_core::local_state_path();
     let daemon_alive = cc_semaphore_core::heartbeat::daemon_alive(&state_path);
-    read_snapshot(&state_path).map(|snapshot| SnapshotEvent {
-        snapshot,
-        home_dir,
-        daemon_alive,
+    read_snapshot(&state_path).map(|snapshot| {
+        let version_supported = snapshot.version == cc_semaphore_core::SNAPSHOT_VERSION;
+        SnapshotEvent {
+            snapshot,
+            home_dir,
+            daemon_alive,
+            version_supported,
+        }
     })
 }
 
@@ -180,12 +190,15 @@ fn main() {
                     if let Some(snapshot) = read_snapshot(&state_path) {
                         tray::on_snapshot(&app_handle, &snapshot.counts, &snapshot.sessions);
                         let daemon_alive = cc_semaphore_core::heartbeat::daemon_alive(&state_path);
+                        let version_supported =
+                            snapshot.version == cc_semaphore_core::SNAPSHOT_VERSION;
                         let _ = app_handle.emit(
                             "snapshot",
                             SnapshotEvent {
                                 snapshot,
                                 home_dir: home_dir.clone(),
                                 daemon_alive,
+                                version_supported,
                             },
                         );
                     }
