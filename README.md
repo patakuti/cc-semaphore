@@ -38,7 +38,13 @@ same instructions as WSL1 throughout.
 
 ## Screenshots
 
-GNOME Shell top bar (running / waiting / idle counts):
+GNOME Shell top bar (running / waiting / idle counts). The count that
+changed most recently blinks for about 30 seconds to catch your eye —
+here it's `waiting`, the one that actually needs you:
+
+![GNOME top bar, waiting count blinking](docs/screenshots/gnome-topbar-blink.gif)
+
+Static view of the same top bar:
 
 ![GNOME top bar](docs/screenshots/gnome-topbar.png)
 
