@@ -1,0 +1,59 @@
+name: Test
+
+# PR gate for cargo fmt/clippy/test, on the project's actual dev platform
+# (Ubuntu). See 02_design.md §7.1.2: this reverses §7.1.1's earlier
+# "Linux CI is out of scope, run by hand" decision.
+#
+# Same trigger shape as windows-build.yml: every push to a pull request,
+# plus on-demand workflow_dispatch. Deliberately not run on push to main
+# — CI stays a pre-merge check, not a post-merge one.
+on:
+  pull_request: {}
+  workflow_dispatch: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # cc-semaphore-desktop is a workspace member, so `cargo test
+      # --workspace` compiles it too. Tauri links against GTK/WebKitGTK on
+      # Linux, so these need to be present before any cargo invocation
+      # below. This is the plain-compile prerequisite list from Tauri's
+      # own Ubuntu docs, not the bundler's (no `patchelf` — this workflow
+      # never runs `cargo tauri build`, unlike windows-build.yml/
+      # release.yml). linux-build.yml skips cc-semaphore-desktop entirely
+      # instead of installing these, since it cross-compiles the daemon
+      # for a musl target that can't link these system libraries anyway;
+      # this workflow builds natively, so it doesn't have that problem.
+      - name: Install Tauri Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libxdo-dev \
+            build-essential \
+            curl \
+            wget \
+            file
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: cargo fmt --check
+        run: cargo fmt --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace
