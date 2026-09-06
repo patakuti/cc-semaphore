@@ -177,6 +177,12 @@ Easiest path: install via the NSIS installer or just run the `.exe` from
 start on login automatically (no opt-out toggle; there's no separate
 "install" step beyond running it once).
 
+The `.exe` and installer aren't code-signed, so Windows SmartScreen will
+show an "unknown publisher" warning the first time you run either one —
+click **More info → Run anyway**. This is expected for an unsigned
+binary, not a sign that something's wrong; getting a code-signing
+certificate is out of scope for this project for now.
+
 To run from source instead:
 
 ```sh

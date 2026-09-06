@@ -18,8 +18,8 @@
     {
       "id": "d2",
       "pid": 100002,
-      "name": "markdown-proxy-bd",
-      "cwd": "/home/patakuti/CCROOT/markdown-proxy",
+      "name": "update-docs-bd",
+      "cwd": "/home/patakuti/CCROOT/docs-site",
       "state": "idle",
       "rawStatus": "idle",
       "since": 1787963227759,
