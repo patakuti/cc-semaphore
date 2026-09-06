@@ -17,4 +17,6 @@ pub use paths::local_state_path;
 pub use proc::{is_alive, ProcSource};
 pub use snapshot::{build_snapshot, parse_session_record, DEFAULT_INCLUDE_KINDS};
 pub use status::map_status;
-pub use types::{SessionEntry, SessionRecord, SessionState, Snapshot, StateCounts, SNAPSHOT_VERSION};
+pub use types::{
+    SessionEntry, SessionRecord, SessionState, Snapshot, StateCounts, SNAPSHOT_VERSION,
+};

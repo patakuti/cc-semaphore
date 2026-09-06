@@ -261,7 +261,7 @@ mod tests {
     fn square_is_fully_opaque() {
         let rgba = render_square("5", (0, 255, 0), (0, 0, 0));
         assert!(
-            rgba.chunks_exact(4).all(|px| px[3] == 255),
+            rgba.as_chunks::<4>().0.iter().all(|px| px[3] == 255),
             "the offline icon must never be transparent"
         );
     }
