@@ -4,6 +4,7 @@ mod lock;
 mod scan;
 mod systemd;
 mod targets;
+mod triggers;
 mod watch_linux;
 mod writer;
 mod wsl1_autostart;
@@ -12,7 +13,7 @@ use cc_semaphore_core::{SessionState, Snapshot};
 use lock::DaemonLock;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use writer::Writer;
 
 fn main() {
@@ -82,17 +83,22 @@ fn cmd_daemon() {
 
     let sessions_dir = env::sessions_dir();
     let mut writer = Writer::new(targets::resolve(&cfg));
+    let mut trigger_engine = triggers::Engine::new(triggers::load());
 
     // Scan once immediately so the snapshot reflects reality from the
     // moment the daemon starts, rather than only after the first change
     // event or the first liveness tick (up to `liveness_tick_secs` later).
-    writer.write(&scan::scan(&sessions_dir, &cfg.include_kinds));
+    let snapshot = scan::scan(&sessions_dir, &cfg.include_kinds);
+    trigger_engine.observe(&snapshot.sessions, Instant::now());
+    writer.write(&snapshot);
 
     if env::is_wsl() {
         let interval = Duration::from_millis(cfg.wsl1_poll_interval_ms);
         loop {
             thread::sleep(interval);
-            writer.write(&scan::scan(&sessions_dir, &cfg.include_kinds));
+            let snapshot = scan::scan(&sessions_dir, &cfg.include_kinds);
+            trigger_engine.observe(&snapshot.sessions, Instant::now());
+            writer.write(&snapshot);
         }
     } else {
         let rx = watch_linux::spawn(sessions_dir.clone());
@@ -100,7 +106,9 @@ fn cmd_daemon() {
         let debounce = Duration::from_millis(cfg.inotify_debounce_ms);
         loop {
             wait_for_wake(&rx, tick, debounce);
-            writer.write(&scan::scan(&sessions_dir, &cfg.include_kinds));
+            let snapshot = scan::scan(&sessions_dir, &cfg.include_kinds);
+            trigger_engine.observe(&snapshot.sessions, Instant::now());
+            writer.write(&snapshot);
         }
     }
 }
@@ -114,11 +122,11 @@ fn cmd_once() {
 fn cmd_watch() {
     let cfg = config::load();
     let sessions_dir = env::sessions_dir();
+    let mut trigger_engine = triggers::Engine::new(triggers::load());
 
-    let shared = std::sync::Arc::new(std::sync::Mutex::new(scan::scan(
-        &sessions_dir,
-        &cfg.include_kinds,
-    )));
+    let initial_snapshot = scan::scan(&sessions_dir, &cfg.include_kinds);
+    trigger_engine.observe(&initial_snapshot.sessions, Instant::now());
+    let shared = std::sync::Arc::new(std::sync::Mutex::new(initial_snapshot));
 
     {
         let shared = std::sync::Arc::clone(&shared);
@@ -132,6 +140,7 @@ fn cmd_watch() {
             if is_wsl {
                 loop {
                     let snap = scan::scan(&sessions_dir, &include_kinds);
+                    trigger_engine.observe(&snap.sessions, Instant::now());
                     *shared.lock().unwrap() = snap;
                     thread::sleep(poll);
                 }
@@ -140,6 +149,7 @@ fn cmd_watch() {
                 loop {
                     wait_for_wake(&rx, tick, debounce);
                     let snap = scan::scan(&sessions_dir, &include_kinds);
+                    trigger_engine.observe(&snap.sessions, Instant::now());
                     *shared.lock().unwrap() = snap;
                 }
             }
