@@ -220,6 +220,43 @@ Everything else (UI redraw rate, tray icon rotation/blink timing, the
 GNOME extension's fallback poll) is a fixed internal constant and isn't
 configurable.
 
+## Triggers (state-change notifications)
+
+`cc-semaphored` can run shell commands when a session's
+running/waiting/idle state changes, as an alternative to registering
+`Notification` hooks in Claude Code's own `settings.json`. Since the
+daemon already computes these three states itself, no changes to Claude
+Code's configuration are needed — this only touches cc-semaphore's own
+config.
+
+Create `~/.config/cc-semaphore/triggers.json`:
+
+```jsonc
+{
+  "onWaiting": [
+    { "type": "command", "command": "notify-send 'Claude Code' '{{name}} is waiting for input ({{cwd}})'" }
+  ],
+  "onIdle": [
+    { "type": "command", "command": "notify-send 'Claude Code' '{{name}} finished'" }
+  ],
+  "onRunning": [],
+  "debounceMs": 2000
+}
+```
+
+- `onWaiting` / `onIdle` / `onRunning` — commands to run when a session
+  transitions into that state. Each entry currently only supports
+  `"type": "command"`.
+- `command` — a shell string (`/bin/sh -c`). Placeholders `{{name}}`,
+  `{{cwd}}`, `{{pid}}`, `{{state}}`, and `{{waitingFor}}` are substituted
+  with the session's values (shell-quoted) before execution.
+- `debounceMs` (default `2000`) — a transition only fires once the new
+  state has held for this long, so a quick back-and-forth (e.g.
+  `waiting → running → waiting`) doesn't fire a spurious `onRunning`.
+- The file is global (applies to every session/project) and is entirely
+  optional — if it's missing or invalid, triggers are simply disabled and
+  the daemon runs as usual.
+
 ## Building from source
 
 ```sh
