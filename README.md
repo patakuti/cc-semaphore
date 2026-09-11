@@ -256,6 +256,16 @@ Create `~/.config/cc-semaphore/triggers.json`:
 - The file is global (applies to every session/project) and is entirely
   optional — if it's missing or invalid, triggers are simply disabled and
   the daemon runs as usual.
+- `triggers.json` is read once at daemon startup, not hot-reloaded — after
+  editing it, restart the daemon (`systemctl --user restart
+  cc-semaphore.service`, or restart your `cc-semaphored watch`/`daemon`
+  process) for the change to take effect.
+- The daemon logs what it's doing with triggers to stderr: whether
+  `triggers.json` loaded and how many actions it found, each state
+  transition it's debouncing, when it fires and runs a command, and that
+  command's exit status. Under systemd, see it with `journalctl --user -u
+  cc-semaphore.service -f`; running `cc-semaphored daemon` or `watch`
+  directly in a terminal prints it there.
 
 ## Building from source
 

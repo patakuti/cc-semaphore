@@ -67,15 +67,30 @@ pub fn triggers_path() -> PathBuf {
 pub fn load() -> Triggers {
     let path = triggers_path();
     let Ok(contents) = std::fs::read_to_string(&path) else {
+        eprintln!(
+            "cc-semaphored: trigger: {} not found; triggers disabled",
+            path.display()
+        );
         return Triggers::disabled();
     };
     match serde_json::from_str::<RawTriggers>(&contents) {
-        Ok(raw) => Triggers {
-            on_waiting: raw.on_waiting,
-            on_idle: raw.on_idle,
-            on_running: raw.on_running,
-            debounce_ms: raw.debounce_ms.unwrap_or(DEFAULT_DEBOUNCE_MS),
-        },
+        Ok(raw) => {
+            let triggers = Triggers {
+                on_waiting: raw.on_waiting,
+                on_idle: raw.on_idle,
+                on_running: raw.on_running,
+                debounce_ms: raw.debounce_ms.unwrap_or(DEFAULT_DEBOUNCE_MS),
+            };
+            eprintln!(
+                "cc-semaphored: trigger: loaded {} (onWaiting={}, onIdle={}, onRunning={}, debounceMs={})",
+                path.display(),
+                triggers.on_waiting.len(),
+                triggers.on_idle.len(),
+                triggers.on_running.len(),
+                triggers.debounce_ms,
+            );
+            triggers
+        }
         Err(e) => {
             eprintln!(
                 "cc-semaphored: warning: {} is not valid JSON ({e}); triggers disabled",
@@ -120,6 +135,10 @@ impl Engine {
                     // from, so this does not count as a transition (avoids
                     // a notification storm for sessions already in flight
                     // when the daemon starts).
+                    eprintln!(
+                        "cc-semaphored: trigger: pid={} first observed in state {:?} (baseline, not a transition)",
+                        session.pid, session.state
+                    );
                     self.tracked.insert(
                         session.pid,
                         Tracked {
@@ -136,20 +155,40 @@ impl Engine {
 
     fn advance(entry: &mut Tracked, triggers: &Triggers, session: &SessionEntry, now: Instant) {
         if session.state == entry.last_fired {
+            if entry.pending.is_some() {
+                eprintln!(
+                    "cc-semaphored: trigger: pid={} reverted to {:?} before the pending transition stabilized; cancelled",
+                    session.pid, session.state
+                );
+            }
             entry.pending = None; // flipped back before it ever fired
             return;
         }
         let already_pending_this_state =
             matches!(entry.pending, Some((s, _)) if s == session.state);
         if !already_pending_this_state {
+            eprintln!(
+                "cc-semaphored: trigger: pid={} {:?} -> {:?} observed; waiting {}ms for it to stabilize",
+                session.pid, entry.last_fired, session.state, triggers.debounce_ms
+            );
             entry.pending = Some((session.state, now));
             return;
         }
         let Some((_, since)) = entry.pending else {
             return;
         };
-        if now.duration_since(since).as_millis() as u64 >= triggers.debounce_ms {
-            run_all(triggers.actions_for(session.state), session);
+        let elapsed_ms = now.duration_since(since).as_millis() as u64;
+        if elapsed_ms >= triggers.debounce_ms {
+            let actions = triggers.actions_for(session.state);
+            eprintln!(
+                "cc-semaphored: trigger: pid={} {:?} -> {:?} stabilized after {}ms; firing {} action(s)",
+                session.pid,
+                entry.last_fired,
+                session.state,
+                elapsed_ms,
+                actions.len()
+            );
+            run_all(actions, session);
             entry.last_fired = session.state;
             entry.pending = None;
         }
@@ -157,10 +196,20 @@ impl Engine {
 }
 
 fn run_all(actions: &[Action], session: &SessionEntry) {
+    if actions.is_empty() {
+        eprintln!(
+            "cc-semaphored: trigger: pid={} state={:?}: 0 actions configured for this event (check triggers.json)",
+            session.pid, session.state
+        );
+    }
     for action in actions {
         if action.kind != "command" {
             // v1 only supports "command" (01_requirements.md §4.6);
             // unknown types are ignored rather than treated as an error.
+            eprintln!(
+                "cc-semaphored: warning: trigger action type {:?} is not supported (only \"command\" is); skipping",
+                action.kind
+            );
             continue;
         }
         run_command(substitute(&action.command, session));
@@ -200,6 +249,7 @@ fn substitute(template: &str, session: &SessionEntry) -> String {
 /// on the child, so the caller (the scan loop) is never blocked and the
 /// child never becomes a zombie (02_design.md §3.10.3).
 fn run_command(command: String) {
+    eprintln!("cc-semaphored: trigger: running: {command}");
     std::thread::spawn(move || {
         match Command::new("/bin/sh")
             .arg("-c")
@@ -209,11 +259,23 @@ fn run_command(command: String) {
             .stderr(Stdio::null())
             .spawn()
         {
-            Ok(mut child) => {
-                let _ = child.wait();
-            }
+            Ok(mut child) => match child.wait() {
+                Ok(status) if status.success() => {
+                    eprintln!("cc-semaphored: trigger: command exited successfully: {command}");
+                }
+                Ok(status) => {
+                    eprintln!(
+                        "cc-semaphored: warning: trigger command exited with {status}: {command}"
+                    );
+                }
+                Err(e) => {
+                    eprintln!("cc-semaphored: warning: failed to wait on trigger command: {e}");
+                }
+            },
             Err(e) => {
-                eprintln!("cc-semaphored: warning: failed to run trigger command: {e}");
+                eprintln!(
+                    "cc-semaphored: warning: failed to spawn trigger command ({e}): {command}"
+                );
             }
         }
     });
