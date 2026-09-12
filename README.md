@@ -290,6 +290,10 @@ cargo test
 No npm, no bundler: `ui/`'s plain ES modules are loaded directly as
 Tauri's `frontendDist`.
 
+## About this project
+
+This tool was designed and implemented entirely by Claude. The human provided the idea. However, this isn't a one-shot output; the human shaped it through hands-on testing and iterative, detail-oriented feedback.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
