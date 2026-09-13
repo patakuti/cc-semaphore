@@ -305,7 +305,7 @@ dependencies = [
 
 [[package]]
 name = "cc-semaphore-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -313,7 +313,7 @@ dependencies = [
 
 [[package]]
 name = "cc-semaphore-daemon"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cc-semaphore-core",
  "inotify",
@@ -323,7 +323,7 @@ dependencies = [
 
 [[package]]
 name = "cc-semaphore-desktop"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ab_glyph",
  "cc-semaphore-core",
